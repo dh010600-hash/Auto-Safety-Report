@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>AI 안전일지 입력</title>
+<style>
+  :root {
+    --bg: #f4f6f8;
+    --card: #ffffff;
+    --border: #dde3ea;
+    --text: #1f2933;
+    --muted: #6b7785;
+    --accent: #2563eb;
+    --accent-dark: #1d4ed8;
+    --danger: #dc2626;
+    --ok: #16a34a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Malgun Gothic", "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+  }
+  .card h2 {
+    font-size: 15px;
+    margin: 0 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .row { display: flex; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 160px; }
+  label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
+  input[type=text], input[type=number], textarea, select {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13.5px;
+    font-family: inherit;
+    background: #fff;
+    color: var(--text);
+  }
+  textarea { resize: vertical; min-height: 40px; }
+  .trade-row {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px;
+    background: #fafbfc;
+  }
+  .trade-row .name { width: 140px; flex-shrink: 0; }
+  .trade-row .cnt { width: 80px; flex-shrink: 0; }
+  .trade-row .work { flex: 1; }
+  .trade-row .del {
+    flex-shrink: 0; align-self: center; background: none; border: none; color: var(--danger);
+    cursor: pointer; font-size: 13px; padding: 4px 6px;
+  }
+  .btn {
+    display: inline-block; padding: 7px 14px; border-radius: 6px; border: 1px solid var(--border);
+    background: #fff; cursor: pointer; font-size: 13px; color: var(--text);
+  }
+  .btn:hover { background: #f0f2f5; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-dark); }
+  .btn.big { padding: 12px 24px; font-size: 15px; }
+  .check-item {
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; background: #fafbfc;
+  }
+  .check-item .top { display: flex; align-items: center; gap: 8px; }
+  .check-item .top label { margin: 0; font-size: 13.5px; color: var(--text); flex: 1; cursor: pointer; }
+  .check-item input[type=checkbox] { width: 16px; height: 16px; }
+  .check-item .extra { margin-top: 8px; display: none; }
+  .check-item .extra.show { display: block; }
+  .check-item .inline-num { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; }
+  .check-item .inline-num input { width: 55px; display: inline-block; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  #weatherStatus { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  #ctxInfo { font-size: 12.5px; color: var(--muted); background: #eef2f7; border-radius: 6px; padding: 8px 10px; margin-bottom: 14px; }
+  #result { margin-top: 14px; padding: 12px 14px; border-radius: 8px; display: none; font-size: 13.5px; }
+  #result.ok { display: block; background: #ecfdf3; border: 1px solid #b7ecc5; color: #166534; }
+  #result.err { display: block; background: #fef2f2; border: 1px solid #f5b5b5; color: #991b1b; }
+  .equip-slot { display: flex; gap: 8px; margin-top: 6px; }
+  .equip-slot input { flex: 1; }
+  .footer-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<h1>AI 안전일지 - 일일 입력</h1>
+<div class="sub">교도소 신축시설 현장 · 공종별 작업사항을 입력하면 안전일지 시트가 자동 생성됩니다. (사진대지 / 산업재해 / 결재란은 비워둡니다)</div>
+
+<div id="ctxInfo">불러오는 중...</div>
+
+<form id="logForm">
+
+  <div class="card">
+    <h2>기본 정보</h2>
+    <div class="row">
+      <div>
+        <label>날짜</label>
+        <input type="text" id="todayLabel" disabled />
+      </div>
+      <div>
+        <label>날씨 <button type="button" class="btn" id="refreshWeather" style="padding:2px 8px;font-size:11px;margin-left:6px;">새로고침</button></label>
+        <input type="text" id="weather" name="weather" />
+        <div id="weatherStatus"></div>
+      </div>
+      <div>
+        <label>전일 근로시간 (시간)</label>
+        <input type="number" id="prevWorkHours" value="10" />
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>오전 제외 인원</label>
+        <input type="number" id="excludeAm" value="0" min="0" />
+      </div>
+      <div>
+        <label>오후 제외 인원</label>
+        <input type="number" id="excludePm" value="0" min="0" />
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>공종별 인원 / 작업내용</h2>
+    <div id="tradeRows"></div>
+    <button type="button" class="btn" id="addTradeRow">+ 공종 행 추가</button>
+    <div class="hint">인원이 0이고 작업내용이 비어있는 공종 행은 시트에 인원/작업내용 없이 공종명만 남습니다. (엑셀 서식상 최대 8개 공종까지 지원)</div>
+  </div>
+
+  <div class="card">
+    <h2>일일 위험성 평가</h2>
+    <div class="check-item">
+      <div class="top">
+        <input type="checkbox" id="chk_safety" checked />
+        <label for="chk_safety">일일 안전점검 결과 이상 무</label>
+      </div>
+      <div class="extra"><textarea id="note_safety" placeholder="이상 있을 경우 내용 입력"></textarea></div>
+    </div>
+    <div class="check-item">
+      <div class="top">
+        <input type="checkbox" id="chk_hazmat" checked />
+        <label for="chk_hazmat">위험물 저장소 점검 결과 이상 무</label>
+      </div>
+      <div class="extra"><textarea id="note_hazmat" placeholder="이상 있을 경우 내용 입력"></textarea></div>
+    </div>
+    <div class="check-item">
+      <div class="top">
+        <input type="checkbox" id="chk_sl" checked />
+        <label for="chk_sl">S/L 점검 결과 이상 무</label>
+        <span class="inline-num"><input type="number" id="sl_count" value="5" min="0" /> 대</span>
+      </div>
+      <div class="extra"><textarea id="note_sl" placeholder="이상 있을 경우 내용 입력"></textarea></div>
+    </div>
+    <div class="check-item">
+      <div class="top">
+        <input type="checkbox" id="chk_heat" checked />
+        <label for="chk_heat">온열질환 자율 점검 결과 이상 무</label>
+      </div>
+      <div class="extra"><textarea id="note_heat" placeholder="이상 있을 경우 내용 입력"></textarea></div>
+    </div>
+    <div class="check-item">
+      <div class="top">
+        <input type="checkbox" id="chk_equip" checked />
+        <label for="chk_equip">장비 점검 결과 이상 무</label>
+      </div>
+      <div class="equip-slot">
+        <input type="text" id="equip1_name" placeholder="장비명/규격 (예: B/H 02)" />
+        <input type="number" id="equip1_qty" placeholder="대수" value="1" min="0" style="max-width:80px;" />
+      </div>
+      <div class="equip-slot">
+        <input type="text" id="equip2_name" placeholder="장비명/규격 (예: B/H 06w)" />
+        <input type="number" id="equip2_qty" placeholder="대수" value="1" min="0" style="max-width:80px;" />
+      </div>
+      <div class="extra"><textarea id="note_equip" placeholder="이상 있을 경우 내용 입력"></textarea></div>
+    </div>
+    <div>
+      <label>위험성평가에 관한 조치 (선택)</label>
+      <textarea id="riskAction"></textarea>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>안전관계기록 - 공종별 안전 지시사항</h2>
+    <div class="row">
+      <div><label>일일 안전 교육</label><textarea id="edu_daily" placeholder="예: 온열질환 예방 수칙 강조, 개인보호구 착용 및 휴식시간 준수 강조"></textarea></div>
+    </div>
+    <div class="row">
+      <div><label>전기 / ESS</label><textarea id="edu_elec" placeholder="금일 작업 X"></textarea></div>
+      <div><label>기계 설비</label><textarea id="edu_mech" placeholder="금일 작업 X"></textarea></div>
+    </div>
+    <div class="row">
+      <div><label>도장</label><textarea id="edu_paint" placeholder="금일 작업 X"></textarea></div>
+      <div><label>수장</label><textarea id="edu_interior" placeholder="금일 작업 X"></textarea></div>
+    </div>
+    <div class="row">
+      <div><label>토목</label><textarea id="edu_civil" placeholder="금일 작업 X"></textarea></div>
+      <div><label>펜스</label><textarea id="edu_fence" placeholder="금일 작업 X"></textarea></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>진행 / 예정 사항</h2>
+    <div class="row">
+      <div><label>금일 진행사항 (특이사항)</label><textarea id="progressToday" placeholder="예: 금일 진행사항: 특이사항 X"></textarea></div>
+    </div>
+    <div class="row">
+      <div><label>금주 및 내주 예정사항</label><textarea id="progressPlan"></textarea></div>
+    </div>
+  </div>
+
+  <div class="footer-actions">
+    <button type="submit" class="btn primary big">엑셀 안전일지에 오늘자 시트 생성</button>
+  </div>
+  <div id="result"></div>
+</form>
+
+<script>
+const DEFAULT_TRADES = ["직  원", "전  기", "기계설비/가스", "수  장", "도  장", "토  목", "ESS", "펜  스"];
+const tradeRowsEl = document.getElementById("tradeRows");
+
+function addTradeRow(name, count, work) {
+  const div = document.createElement("div");
+  div.className = "trade-row";
+  div.innerHTML = `
+    <div class="name"><label>공종</label><input type="text" class="t-name" value="${name || ''}" /></div>
+    <div class="cnt"><label>인원</label><input type="number" class="t-count" min="0" value="${count || 0}" /></div>
+    <div class="work"><label>작업내용</label><textarea class="t-work" rows="1">${work || ''}</textarea></div>
+    <button type="button" class="del" title="행 삭제">삭제</button>
+  `;
+  div.querySelector(".del").addEventListener("click", () => div.remove());
+  tradeRowsEl.appendChild(div);
+}
+
+const MAX_TRADE_ROWS = 8;
+DEFAULT_TRADES.forEach(t => addTradeRow(t, 0, ""));
+function syncAddButton() {
+  document.getElementById("addTradeRow").disabled = tradeRowsEl.children.length >= MAX_TRADE_ROWS;
+}
+document.getElementById("addTradeRow").addEventListener("click", () => {
+  if (tradeRowsEl.children.length >= MAX_TRADE_ROWS) return;
+  addTradeRow("", 0, "");
+  syncAddButton();
+});
+new MutationObserver(syncAddButton).observe(tradeRowsEl, { childList: true });
+syncAddButton();
+
+// 체크박스 -> 비고 입력창 토글 (체크 해제 시 특이사항 입력란 노출)
+["safety","hazmat","sl","heat","equip"].forEach(key => {
+  const chk = document.getElementById("chk_" + key);
+  const extra = chk.closest(".check-item").querySelector(".extra");
+  const sync = () => extra.classList.toggle("show", !chk.checked);
+  chk.addEventListener("change", sync);
+  sync();
+});
+
+// 오늘 날짜 표시
+const today = new Date();
+const days = ["일","월","화","수","목","금","토"];
+document.getElementById("todayLabel").value =
+  `${today.getFullYear()}년 ${today.getMonth()+1}월 ${today.getDate()}일 ${days[today.getDay()]}요일`;
+
+async function loadWeather() {
+  const statusEl = document.getElementById("weatherStatus");
+  statusEl.textContent = "날씨 조회 중...";
+  try {
+    const res = await fetch("/api/weather");
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById("weather").value = data.text;
+      statusEl.textContent = `평택 팽성읍 기준 자동조회 (최고 ${data.tmax}℃ / 최저 ${data.tmin}℃)`;
+    } else {
+      statusEl.textContent = "날씨 자동조회 실패 - 직접 입력해주세요.";
+    }
+  } catch (e) {
+    statusEl.textContent = "날씨 자동조회 실패 - 직접 입력해주세요.";
+  }
+}
+document.getElementById("refreshWeather").addEventListener("click", loadWeather);
+loadWeather();
+
+async function loadContext() {
+  const el = document.getElementById("ctxInfo");
+  try {
+    const res = await fetch("/api/context");
+    const data = await res.json();
+    if (data.ok) {
+      el.textContent = `직전 시트: ${data.lastSheetName} · 전일 무재해시간 ${data.prevAccidentFreeHours.toLocaleString()}시간 -> 오늘 시트에 자동 이월됩니다.`;
+    } else {
+      el.textContent = "직전 시트 정보를 불러오지 못했습니다: " + (data.error || "");
+    }
+  } catch (e) {
+    el.textContent = "직전 시트 정보를 불러오지 못했습니다.";
+  }
+}
+loadContext();
+
+document.getElementById("logForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const resultEl = document.getElementById("result");
+  resultEl.className = "";
+  resultEl.style.display = "none";
+
+  const trades = Array.from(tradeRowsEl.querySelectorAll(".trade-row")).map(row => ({
+    name: row.querySelector(".t-name").value.trim(),
+    count: Number(row.querySelector(".t-count").value || 0),
+    work: row.querySelector(".t-work").value.trim()
+  })).filter(t => t.name);
+
+  const payload = {
+    weather: document.getElementById("weather").value,
+    prevWorkHours: Number(document.getElementById("prevWorkHours").value || 10),
+    excludeAm: Number(document.getElementById("excludeAm").value || 0),
+    excludePm: Number(document.getElementById("excludePm").value || 0),
+    trades: trades,
+    checks: {
+      safety:  { ok: document.getElementById("chk_safety").checked, note: document.getElementById("note_safety").value },
+      hazmat:  { ok: document.getElementById("chk_hazmat").checked, note: document.getElementById("note_hazmat").value },
+      sl:      { ok: document.getElementById("chk_sl").checked, note: document.getElementById("note_sl").value, count: Number(document.getElementById("sl_count").value || 0) },
+      heat:    { ok: document.getElementById("chk_heat").checked, note: document.getElementById("note_heat").value },
+      equip:   { ok: document.getElementById("chk_equip").checked, note: document.getElementById("note_equip").value,
+                 equip1: { name: document.getElementById("equip1_name").value, qty: Number(document.getElementById("equip1_qty").value || 0) },
+                 equip2: { name: document.getElementById("equip2_name").value, qty: Number(document.getElementById("equip2_qty").value || 0) } }
+    },
+    riskAction: document.getElementById("riskAction").value,
+    edu: {
+      daily: document.getElementById("edu_daily").value,
+      elec: document.getElementById("edu_elec").value,
+      mech: document.getElementById("edu_mech").value,
+      paint: document.getElementById("edu_paint").value,
+      interior: document.getElementById("edu_interior").value,
+      civil: document.getElementById("edu_civil").value,
+      fence: document.getElementById("edu_fence").value
+    },
+    progressToday: document.getElementById("progressToday").value,
+    progressPlan: document.getElementById("progressPlan").value
+  };
+
+  const submitBtn = e.target.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+  submitBtn.textContent = "생성 중...";
+
+  try {
+    const res = await fetch("/api/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.ok) {
+      resultEl.className = "ok";
+      resultEl.textContent = `완료: "${data.sheetName}" 시트가 생성되었습니다. 엑셀 파일을 열어 사진대지 / 산업재해 / 결재란만 채워주세요.`;
+      loadContext();
+    } else {
+      resultEl.className = "err";
+      resultEl.textContent = "오류: " + (data.error || "알 수 없는 오류");
+    }
+  } catch (err) {
+    resultEl.className = "err";
+    resultEl.textContent = "서버와 통신할 수 없습니다: " + err;
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = "엑셀 안전일지에 오늘자 시트 생성";
+  }
+});
+</script>
+
+</body>
+</html>

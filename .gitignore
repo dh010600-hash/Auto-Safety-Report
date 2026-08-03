@@ -1,0 +1,12 @@
+# 실제 현장 데이터가 담긴 엑셀 원본 (용량 크고 민감정보 포함 - 저장소에 올리지 않음)
+안전일지*.xlsx
+~$*.xlsx
+
+# 로컬 실행 로그/임시 파일
+webapp/*.log
+webapp/last_payload.json
+webapp/server_stdout.log
+webapp/server_stderr.log
+
+# Claude Code 로컬 설정
+.claude/
