@@ -113,6 +113,22 @@ function Set-CellValue($ws, [string]$addr, $value) {
     throw "셀 $addr 쓰기 실패 (4회 재시도 후): $($lastErr.Exception.Message)"
 }
 
+# 다른 시트를 참조하는 수식을 직접 넣을 때 사용 (예: 전일 무재해시간을 전날 시트의
+# C5 셀에 실시간으로 연동 - 전날 값이 나중에 수정되어도 자동으로 반영됨)
+function Set-CellFormula($ws, [string]$addr, [string]$formula) {
+    $lastErr = $null
+    for ($attempt = 1; $attempt -le 4; $attempt++) {
+        try {
+            $ws.Range($addr).Formula = $formula
+            return
+        } catch {
+            $lastErr = $_
+            Start-Sleep -Milliseconds (100 * $attempt)
+        }
+    }
+    throw "셀 $addr 수식 쓰기 실패 (4회 재시도 후): $($lastErr.Exception.Message)"
+}
+
 # ---------- HTTP 응답 헬퍼 ----------
 function Send-Json($response, $obj, [int]$status = 200) {
     $json = $obj | ConvertTo-Json -Depth 10 -Compress
@@ -160,10 +176,9 @@ function Invoke-Submit($payload) {
 
     $existing = $sorted | Where-Object { $_.Name.Trim() -eq $todayLabel.Trim() } | Select-Object -First 1
     $prevCandidates = $sorted | Where-Object { $_.Name.Trim() -ne $todayLabel.Trim() }
-    $prevHours = 0
+    $prevSheetName = $null
     if ($prevCandidates.Count -gt 0) {
-        $v = $prevCandidates[0].Sheet.Range("C5").Value2
-        if ($null -ne $v) { $prevHours = [double]$v }
+        $prevSheetName = $prevCandidates[0].Name
     }
 
     $createdNew = -not $existing
@@ -187,7 +202,13 @@ function Invoke-Submit($payload) {
     Set-CellValue $ws "I6" ([double]$payload.prevWorkHours)
     Set-CellValue $ws "W16" ([double]$payload.excludeAm)
     Set-CellValue $ws "Y16" ([double]$payload.excludePm)
-    Set-CellValue $ws "T20" ($prevHours)
+    if ($prevSheetName) {
+        # 전일 시트의 C5(무재해달성시간)를 실시간으로 참조 - 전날 값이 나중에 수정돼도 자동 반영
+        $escapedName = $prevSheetName.Trim().Replace("'", "''")
+        Set-CellFormula $ws "T20" "='$escapedName'!C5"
+    } else {
+        Set-CellValue $ws "T20" 0
+    }
 
     # 공종별 인원/작업내용 (8~15행 슬롯에 순서대로 매핑)
     $row = 8
