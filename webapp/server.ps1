@@ -75,6 +75,32 @@ function Clear-CutCopyMode {
     [void]$script:Excel.GetType().InvokeMember("CutCopyMode", [System.Reflection.BindingFlags]::SetProperty, $null, $script:Excel, @($false))
 }
 
+# 복제된 시트에서는 Range.Value/.Value2 에 숫자(double)를 대입할 때 "Double을 String으로
+# 캐스팅할 수 없음" 오류가 재현성 있게 발생한다 (TEMPLATE 원본 시트에서는 발생하지 않음).
+# 반면 숫자를 문자열로 만들어 .Formula 로 대입하면(사용자가 셀에 직접 입력하는 것과 동일한
+# 경로) 문제없이 동작하므로, 숫자 값은 Formula 경로를 쓰고 문자열/공백 값은 Value 경로를 쓴다.
+function Set-CellValue($ws, [string]$addr, $value) {
+    $lastErr = $null
+    for ($attempt = 1; $attempt -le 4; $attempt++) {
+        try {
+            if ($null -eq $value) {
+                $ws.Range($addr).Value = $null
+            }
+            elseif ($value -is [double] -or $value -is [int] -or $value -is [int64] -or $value -is [decimal]) {
+                $ws.Range($addr).Formula = $value.ToString([System.Globalization.CultureInfo]::InvariantCulture)
+            }
+            else {
+                $ws.Range($addr).Value = $value
+            }
+            return
+        } catch {
+            $lastErr = $_
+            Start-Sleep -Milliseconds (100 * $attempt)
+        }
+    }
+    throw "셀 $addr 쓰기 실패 (4회 재시도 후): $($lastErr.Exception.Message)"
+}
+
 # ---------- HTTP 응답 헬퍼 ----------
 function Send-Json($response, $obj, [int]$status = 200) {
     $json = $obj | ConvertTo-Json -Depth 10 -Compress
@@ -116,7 +142,6 @@ function Get-ContextInfo {
 }
 
 function Invoke-Submit($payload) {
-    try { $payload | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $PSScriptRoot "last_payload.json") -Encoding utf8 } catch {}
     $today = Get-Date
     $todayLabel = Get-KoreanDateLabel $today
     $sorted = Get-DateSheetsSorted
@@ -146,25 +171,25 @@ function Invoke-Submit($payload) {
 
     try {
     # 기본 정보
-    $ws.Range("C4").Value2 = [string]$payload.weather
-    $ws.Range("I6").Value2 = [double]$payload.prevWorkHours
-    $ws.Range("W16").Value2 = [double]$payload.excludeAm
-    $ws.Range("Y16").Value2 = [double]$payload.excludePm
-    $ws.Range("T20").Value2 = $prevHours
+    Set-CellValue $ws "C4" ([string]$payload.weather)
+    Set-CellValue $ws "I6" ([double]$payload.prevWorkHours)
+    Set-CellValue $ws "W16" ([double]$payload.excludeAm)
+    Set-CellValue $ws "Y16" ([double]$payload.excludePm)
+    Set-CellValue $ws "T20" ($prevHours)
 
     # 공종별 인원/작업내용 (8~15행 슬롯에 순서대로 매핑)
     $row = 8
     foreach ($t in $payload.trades) {
         if ($row -gt 15) { break }
-        $ws.Range("A$row").Value2 = [string]$t.name
-        $ws.Range("C$row").Value2 = [double]$t.count
-        $ws.Range("F$row").Value2 = [string]$t.work
+        Set-CellValue $ws "A$row" ([string]$t.name)
+        Set-CellValue $ws "C$row" ([double]$t.count)
+        Set-CellValue $ws "F$row" ([string]$t.work)
         $row++
     }
     while ($row -le 15) {
-        $ws.Range("A$row").Value2 = $null
-        $ws.Range("C$row").Value2 = $null
-        $ws.Range("F$row").Value2 = $null
+        Set-CellValue $ws "A$row" $null
+        Set-CellValue $ws "C$row" $null
+        Set-CellValue $ws "F$row" $null
         $row++
     }
 
@@ -172,55 +197,46 @@ function Invoke-Submit($payload) {
     $c = $payload.checks
 
     [string]$v17 = if ($c.safety.ok) { "일일 안전점검 결과 이상 무" } else { [string]$c.safety.note }
-    $ws.Range("B17").Value2 = $v17
+    Set-CellValue $ws "B17" $v17
 
     [string]$v18 = if ($c.hazmat.ok) { "위험물 저장소 점검 결과 이상 무" } else { [string]$c.hazmat.note }
-    $ws.Range("B18").Value2 = $v18
+    Set-CellValue $ws "B18" $v18
 
     [string]$v19 = if ($c.sl.ok) { "S/L ($([int]$c.sl.count)대) 점검 결과 이상 무" } else { [string]$c.sl.note }
-    $ws.Range("B19").Value2 = $v19
+    Set-CellValue $ws "B19" $v19
 
     [string]$v20 = if ($c.heat.ok) { "온열질환 자율 점검 결과 이상 무" } else { [string]$c.heat.note }
-    $ws.Range("B20").Value2 = $v20
+    Set-CellValue $ws "B20" $v20
 
     if ($c.equip.ok) {
         if ($c.equip.equip1.name) {
             [string]$v21 = "장비 ($([string]$c.equip.equip1.name) $([int]$c.equip.equip1.qty)대)  점검 결과 이상 무"
-            $ws.Range("B21").Value2 = $v21
-        } else { $ws.Range("B21").Value2 = $null }
+            Set-CellValue $ws "B21" $v21
+        } else { Set-CellValue $ws "B21" $null }
         if ($c.equip.equip2.name) {
             [string]$vs21 = "장비 ($([string]$c.equip.equip2.name) $([int]$c.equip.equip2.qty)대) 점검 결과 이상 무"
-            $ws.Range("S21").Value2 = $vs21
-        } else { $ws.Range("S21").Value2 = $null }
+            Set-CellValue $ws "S21" $vs21
+        } else { Set-CellValue $ws "S21" $null }
     } else {
         [string]$v21b = $c.equip.note
-        $ws.Range("B21").Value2 = $v21b
-        $ws.Range("S21").Value2 = $null
+        Set-CellValue $ws "B21" $v21b
+        Set-CellValue $ws "S21" $null
     }
 
     [string]$vRisk = $payload.riskAction
-    $ws.Range("I16").Value2 = $vRisk
+    Set-CellValue $ws "I16" $vRisk
 
     # 안전관계기록
-    [string]$vEduDaily = $payload.edu.daily
-    $ws.Range("C23").Value2 = $vEduDaily
-    [string]$vEduElec = $payload.edu.elec
-    $ws.Range("C24").Value2 = $vEduElec
-    [string]$vEduMech = $payload.edu.mech
-    $ws.Range("C25").Value2 = $vEduMech
-    [string]$vEduPaint = $payload.edu.paint
-    $ws.Range("C26").Value2 = $vEduPaint
-    [string]$vEduInterior = $payload.edu.interior
-    $ws.Range("C27").Value2 = $vEduInterior
-    [string]$vEduCivil = $payload.edu.civil
-    $ws.Range("C28").Value2 = $vEduCivil
-    [string]$vEduFence = $payload.edu.fence
-    $ws.Range("C29").Value2 = $vEduFence
+    Set-CellValue $ws "C23" ([string]$payload.edu.daily)
+    Set-CellValue $ws "C24" ([string]$payload.edu.elec)
+    Set-CellValue $ws "C25" ([string]$payload.edu.mech)
+    Set-CellValue $ws "C26" ([string]$payload.edu.paint)
+    Set-CellValue $ws "C27" ([string]$payload.edu.interior)
+    Set-CellValue $ws "C28" ([string]$payload.edu.civil)
+    Set-CellValue $ws "C29" ([string]$payload.edu.fence)
 
-    [string]$vProgToday = $payload.progressToday
-    $ws.Range("B30").Value2 = $vProgToday
-    [string]$vProgPlan = $payload.progressPlan
-    $ws.Range("B31").Value2 = $vProgPlan
+    Set-CellValue $ws "B30" ([string]$payload.progressToday)
+    Set-CellValue $ws "B31" ([string]$payload.progressPlan)
 
     $script:MasterWb.Save()
 
