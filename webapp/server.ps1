@@ -14,6 +14,18 @@ $prefix = "http://localhost:8787/"
 
 if (-not (Test-Path $masterPath)) { throw "마스터 파일을 찾을 수 없습니다: $masterPath" }
 
+# ---------- 안전 백업: 저장 직전 현재 상태를 보관 ----------
+# (엑셀 COM 자동화 중 강제종료 등으로 파일이 손상/데이터 유실될 경우를 대비)
+$backupDir = Join-Path $root "backups"
+if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Path $backupDir | Out-Null }
+function Backup-MasterFile {
+    $backupName = "안전일지_백업_{0}.xlsx" -f (Get-Date -Format "yyyyMMdd_HHmmss")
+    Copy-Item -Path $masterPath -Destination (Join-Path $backupDir $backupName) -Force
+    # 오래된 백업 정리 (최근 30개만 유지 - 원본이 25MB 안팎이라 무한정 쌓이지 않도록)
+    Get-ChildItem $backupDir -Filter "안전일지_백업_*.xlsx" | Sort-Object LastWriteTime -Descending | Select-Object -Skip 30 | Remove-Item -Force -ErrorAction SilentlyContinue
+}
+Backup-MasterFile
+
 # ---------- Excel 연결 (서버 수명 동안 하나의 인스턴스를 유지) ----------
 $script:Excel = New-Object -ComObject Excel.Application
 $script:Excel.Visible = $false
@@ -238,6 +250,7 @@ function Invoke-Submit($payload) {
     Set-CellValue $ws "B30" ([string]$payload.progressToday)
     Set-CellValue $ws "B31" ([string]$payload.progressPlan)
 
+    Backup-MasterFile
     $script:MasterWb.Save()
 
     return [PSCustomObject]@{ ok = $true; sheetName = $ws.Name }

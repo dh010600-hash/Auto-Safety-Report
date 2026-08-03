@@ -132,6 +132,15 @@
   </div>
 
   <div class="card">
+    <h2>카톡 붙여넣기로 자동 채우기</h2>
+    <textarea id="kakaoPaste" rows="6" placeholder="카카오톡 단체방의 공종별 예정작업사항 메시지들을 통째로 복사해서 여기에 붙여넣으세요."></textarea>
+    <div class="footer-actions" style="margin-top:8px;">
+      <button type="button" class="btn primary" id="parseKakaoBtn">아래 공종별 인원/작업내용에 자동 반영</button>
+    </div>
+    <div id="kakaoParseStatus" class="hint"></div>
+  </div>
+
+  <div class="card">
     <h2>공종별 인원 / 작업내용</h2>
     <div id="tradeRows"></div>
     <button type="button" class="btn" id="addTradeRow">+ 공종 행 추가</button>
@@ -254,6 +263,185 @@ document.getElementById("addTradeRow").addEventListener("click", () => {
 });
 new MutationObserver(syncAddButton).observe(tradeRowsEl, { childList: true });
 syncAddButton();
+
+// ---------- 카톡 붙여넣기 파서 ----------
+// 공종 라벨(폼에 실제 표시되는 이름) - 최소 하나의 트리거 키워드로 매칭
+const TRADE_DEFS = [
+  { key: "직원",    label: "직  원",       keywords: ["직영", "직원"] },
+  { key: "전기",    label: "전  기",       keywords: ["전기"] },
+  { key: "기계설비", label: "기계설비/가스", keywords: ["fcu", "기계", "설비", "공조", "덕트"] },
+  { key: "수장",    label: "수  장",       keywords: ["내장", "수장"] },
+  { key: "도장",    label: "도  장",       keywords: ["도장"] },
+  { key: "토목",    label: "토  목",       keywords: ["토목"] },
+  { key: "ess",     label: "ESS",         keywords: ["ess"] },
+  { key: "펜스",    label: "펜  스",       keywords: ["휀스", "펜스"] }
+];
+
+function matchTradeByTitle(title) {
+  const t = title.toLowerCase();
+  for (const def of TRADE_DEFS) {
+    if (def.keywords.some(k => t.includes(k))) return def;
+  }
+  return null;
+}
+
+// 카톡 텍스트를 파싱해서 { key, label, count, workItems[], equipMentions[] } 배열로 반환
+function parseKakaoText(text) {
+  const lines = text.split(/\r?\n/);
+  const blocksByKey = {}; // key -> { label, count, workItems: [], equipMentions: [] }
+  let current = null;   // 현재 누적 대상 블록
+  let section = null;   // 'people' | 'work' | 'equip' | null
+
+  const HEADER3_RE = /^\[(.+?)\]\s*\[(.+?)\]\s*\[(.+?)\]\s*$/; // [이름][시간][제목]
+  const HEADER_NAMETIME_RE = /^\[(.+?)\]\s*\[(.+?)\]/;          // [이름][시간] 로 시작(제목 없을수도)
+  const SUBHEADER_RE = /^\[(.+?)\]\s*$/;                        // [전기,소방공사] 형태 단독 서브헤더
+
+  function getBlock(def) {
+    if (!blocksByKey[def.key]) {
+      blocksByKey[def.key] = { label: def.label, count: 0, workItems: [], equipMentions: [] };
+    }
+    return blocksByKey[def.key];
+  }
+
+  function stripPrefix(s) {
+    return s.replace(/^[\*\-\u2022]\s*/, "").replace(/^\d+[\.\)]\s*/, "").trim();
+  }
+
+  function addPeopleFromText(str) {
+    if (!current) return;
+    if (str.includes("총인원") || str.includes("총 인원")) return; // 총계는 중복 합산 방지 위해 제외
+    const matches = str.match(/(\d+)\s*명/g) || [];
+    matches.forEach(m => { current.count += parseInt(m, 10) || 0; });
+  }
+
+  function addWorkFromText(str) {
+    if (!current) return;
+    const v = stripPrefix(str);
+    if (v && v !== "없음" && v !== "작업없음") current.workItems.push(v);
+  }
+
+  function addEquipFromText(str) {
+    if (!current) return;
+    const v = stripPrefix(str);
+    if (!v || v === "없음") return;
+    const m = v.match(/^(.+?)[\s:\-]*?(\d+)\s*대/);
+    if (m) {
+      const name = m[1].replace(/[:\-]\s*$/, "").trim();
+      if (name) current.equipMentions.push({ name: name, qty: parseInt(m[2], 10) || 1 });
+    }
+  }
+
+  for (let raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+
+    const h3 = line.match(HEADER3_RE);
+    if (h3) {
+      const title = h3[3];
+      const def = matchTradeByTitle(title);
+      current = def ? getBlock(def) : null;
+      section = null;
+      continue;
+    }
+
+    // [이름][시간] + 뒤에 다른 내용(예: "사진 6장") -> 작업 블록이 아니므로 누적 중단
+    if (HEADER_NAMETIME_RE.test(line) && !SUBHEADER_RE.test(line)) {
+      current = null;
+      section = null;
+      continue;
+    }
+
+    if (SUBHEADER_RE.test(line)) {
+      // 같은 메시지 내 하위 구분([전기,소방공사] 등) - 대상 공종은 유지, 섹션만 리셋
+      section = null;
+      continue;
+    }
+
+    if (!current) continue;
+
+    // "총인원"/"총 인원" 줄은 별도 항목(관리자/근로자 등) 합계를 미리 요약해둔 것이라
+    // 그대로 더하면 중복 합산되므로 통째로 건너뛴다.
+    if (/^[\*\-]?\s*총\s*인원/.test(line)) { continue; }
+
+    const peopleHeader = line.match(/^[\*\-]?\s*인원\s*[:;]?\s*(.*)$/);
+    const equipHeader = line.match(/^[\*\-]?\s*장비\s*[:;]?\s*(.*)$/);
+    const workHeader = line.match(/^[\*\-]?\s*작업\s*내용\s*[:;\uFF1B]?\s*(.*)$/);
+
+    if (peopleHeader) {
+      section = "people";
+      if (peopleHeader[1]) addPeopleFromText(peopleHeader[1]);
+      continue;
+    }
+    if (equipHeader) {
+      section = "equip";
+      if (equipHeader[1]) addEquipFromText(equipHeader[1]);
+      continue;
+    }
+    if (workHeader) {
+      section = "work";
+      if (workHeader[1]) addWorkFromText(workHeader[1]);
+      continue;
+    }
+    if (/^신규/.test(line) || /^●?\s*날짜/.test(line) || /^●/.test(line)) {
+      section = null;
+      continue;
+    }
+
+    if (section === "people") addPeopleFromText(line);
+    else if (section === "work") addWorkFromText(line);
+    else if (section === "equip") addEquipFromText(line);
+  }
+
+  return Object.values(blocksByKey).map(b => ({
+    label: b.label,
+    count: b.count,
+    work: b.workItems.join(", "),
+    equipMentions: b.equipMentions
+  }));
+}
+
+function applyParsedTrades(parsed) {
+  let filled = 0;
+  const allEquip = [];
+  parsed.forEach(p => {
+    allEquip.push(...p.equipMentions);
+    const rows = Array.from(tradeRowsEl.querySelectorAll(".trade-row"));
+    let row = rows.find(r => r.querySelector(".t-name").value.trim().replace(/\s+/g, "") === p.label.replace(/\s+/g, ""));
+    if (!row && tradeRowsEl.children.length < MAX_TRADE_ROWS) {
+      addTradeRow(p.label, 0, "");
+      row = tradeRowsEl.lastElementChild;
+    }
+    if (!row) return;
+    row.querySelector(".t-count").value = p.count;
+    row.querySelector(".t-work").value = p.work;
+    filled++;
+  });
+
+  // 장비 점검란: 비어있을 때만 파싱된 장비 최대 2개 채움 (수동 입력값 보존)
+  const e1n = document.getElementById("equip1_name");
+  const e1q = document.getElementById("equip1_qty");
+  const e2n = document.getElementById("equip2_name");
+  const e2q = document.getElementById("equip2_qty");
+  const uniqueEquip = [];
+  allEquip.forEach(e => { if (!uniqueEquip.some(u => u.name === e.name)) uniqueEquip.push(e); });
+  if (uniqueEquip[0] && !e1n.value.trim()) { e1n.value = uniqueEquip[0].name; e1q.value = uniqueEquip[0].qty; }
+  if (uniqueEquip[1] && !e2n.value.trim()) { e2n.value = uniqueEquip[1].name; e2q.value = uniqueEquip[1].qty; }
+
+  return filled;
+}
+
+document.getElementById("parseKakaoBtn").addEventListener("click", () => {
+  const text = document.getElementById("kakaoPaste").value;
+  const statusEl = document.getElementById("kakaoParseStatus");
+  if (!text.trim()) { statusEl.textContent = "붙여넣은 내용이 없습니다."; return; }
+  const parsed = parseKakaoText(text);
+  if (parsed.length === 0) {
+    statusEl.textContent = "인식된 공종이 없습니다. 형식을 확인해주세요 (직접 입력해도 됩니다).";
+    return;
+  }
+  const filled = applyParsedTrades(parsed);
+  statusEl.textContent = `${filled}개 공종에 자동 반영했습니다: ${parsed.map(p => p.label.trim()).join(", ")}. 아래에서 내용을 확인 후 필요하면 수정해주세요.`;
+});
 
 // 체크박스 -> 비고 입력창 토글 (체크 해제 시 특이사항 입력란 노출)
 ["safety","hazmat","sl","heat","equip"].forEach(key => {
