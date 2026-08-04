@@ -201,6 +201,10 @@
 
   <div class="card">
     <h2>안전관계기록 - 공종별 안전 지시사항</h2>
+    <div class="footer-actions" style="justify-content:flex-start; margin-bottom:10px;">
+      <button type="button" class="btn primary" id="suggestSafetyBtn">오늘 작업내용 기반으로 안전지시사항 자동 제안</button>
+    </div>
+    <div id="suggestSafetyStatus" class="hint" style="margin-bottom:10px;"></div>
     <div class="row">
       <div><label>일일 안전 교육</label><textarea id="edu_daily" placeholder="예: 온열질환 예방 수칙 강조, 개인보호구 착용 및 휴식시간 준수 강조"></textarea></div>
     </div>
@@ -442,6 +446,77 @@ document.getElementById("parseKakaoBtn").addEventListener("click", () => {
   }
   const filled = applyParsedTrades(parsed);
   statusEl.textContent = `${filled}개 공종에 자동 반영했습니다: ${parsed.map(p => p.label.trim()).join(", ")}. 아래에서 내용을 확인 후 필요하면 수정해주세요.`;
+});
+
+// ---------- 작업내용 기반 안전지시사항 자동 제안 ----------
+const SAFETY_RULES = {
+  elec: [
+    { kws: ["배관", "결선", "전등", "전열", "배선", "소방", "cctv", "통신", "직압"], msg: "활선 접촉 및 감전 주의, 절연장갑·절연공구 사용, 작업 전 차단기 상태 확인" },
+    { kws: ["고소", "천장", "사다리"], msg: "고소작업대/사다리 전도 주의, 안전모 및 안전대 착용" }
+  ],
+  mech: [
+    { kws: ["용접", "절단"], msg: "화재감시자 배치 및 소화기 비치, 불티 비산 방지막 설치" },
+    { kws: ["시운전"], msg: "시운전 중 회전체·고온부 접촉 주의, 정비 전 전원 차단(LOTO) 확인" },
+    { kws: ["배관", "덕트", "기구", "설치"], msg: "중량물 취급시 협착 주의 및 2인 1조 작업" }
+  ],
+  paint: [
+    { kws: ["에폭시", "샌딩", "페인트", "퍼티", "도장", "프라이머"], msg: "유기용제 중독 및 화재 예방을 위해 방독마스크 착용, 배풍기·송풍기로 환기 실시, 화기 엄금" }
+  ],
+  interior: [
+    { kws: ["s/l", "타일", "석고보드", "천장", "실링", "취부"], msg: "고소작업(S/L) 사용시 안전대 체결 필수, 낙하물 방지 및 안전모 착용" }
+  ],
+  civil: [
+    { kws: ["굴착", "양수", "거푸집", "골재", "토공", "아스콘", "기초"], msg: "굴착사면 붕괴 및 장비 협착 주의, 신호수 배치 및 출입금지구역 설정" },
+    { kws: ["백호", "롤러", "로라", "덤프", "장비"], msg: "중장비 이동 경로 확인 및 유도자 배치" }
+  ],
+  fence: [
+    { kws: ["천공", "기초", "양수", "주름관"], msg: "천공·기초 작업시 장비 협착 및 자재 낙하 주의" },
+    { kws: ["장비", "백호"], msg: "장비 이동 경로 확인 및 신호수 배치" }
+  ]
+};
+
+function getTradeWork(labels) {
+  const rows = Array.from(tradeRowsEl.querySelectorAll(".trade-row"));
+  const texts = [];
+  labels.forEach(lbl => {
+    const row = rows.find(r => r.querySelector(".t-name").value.trim().replace(/\s+/g, "") === lbl.replace(/\s+/g, ""));
+    if (row) {
+      const w = row.querySelector(".t-work").value.trim();
+      if (w) texts.push(w);
+    }
+  });
+  return texts.join(", ");
+}
+
+function buildSafetyMessage(workText, ruleKey, isHeatWave, heatApplicable) {
+  if (!workText) return "금일 작업 X";
+  const lower = workText.toLowerCase();
+  const rules = SAFETY_RULES[ruleKey] || [];
+  const msgs = [];
+  rules.forEach(r => { if (r.kws.some(k => lower.includes(k))) msgs.push(r.msg); });
+  if (msgs.length === 0) msgs.push("개인보호구(안전모/안전화) 착용 및 작업 전 위험요소 확인");
+  if (isHeatWave && heatApplicable) msgs.push("폭염 대비 수분 섭취 및 2시간 작업 후 최소 30분 이상 휴식 준수");
+  return msgs.join(", ");
+}
+
+document.getElementById("suggestSafetyBtn").addEventListener("click", () => {
+  const weather = document.getElementById("weather").value || "";
+  const isHeatWave = weather.includes("폭염");
+
+  document.getElementById("edu_elec").value = buildSafetyMessage(getTradeWork(["전  기", "ESS"]), "elec", isHeatWave, false);
+  document.getElementById("edu_mech").value = buildSafetyMessage(getTradeWork(["기계설비/가스"]), "mech", isHeatWave, false);
+  document.getElementById("edu_paint").value = buildSafetyMessage(getTradeWork(["도  장"]), "paint", isHeatWave, false);
+  document.getElementById("edu_interior").value = buildSafetyMessage(getTradeWork(["수  장"]), "interior", isHeatWave, false);
+  document.getElementById("edu_civil").value = buildSafetyMessage(getTradeWork(["토  목"]), "civil", isHeatWave, true);
+  document.getElementById("edu_fence").value = buildSafetyMessage(getTradeWork(["펜  스"]), "fence", isHeatWave, true);
+
+  if (!document.getElementById("edu_daily").value.trim()) {
+    document.getElementById("edu_daily").value = isHeatWave
+      ? "온열질환 예방 수칙 강조, 개인보호구 착용 및 휴식시간 준수 강조"
+      : "개인보호구 착용 및 안전수칙 준수 강조";
+  }
+
+  document.getElementById("suggestSafetyStatus").textContent = "작업내용을 분석해 안전지시사항을 자동으로 채웠습니다. 현장 상황에 맞게 확인 후 필요하면 수정해주세요.";
 });
 
 // 체크박스 -> 비고 입력창 토글 (체크 해제 시 특이사항 입력란 노출)
