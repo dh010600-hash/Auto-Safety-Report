@@ -252,7 +252,8 @@ function addTradeRow(name, count, work) {
 }
 
 const MAX_TRADE_ROWS = 8;
-DEFAULT_TRADES.forEach(t => addTradeRow(t, 0, ""));
+const DEFAULT_TRADE_COUNTS = { "직  원": 13 }; // 직원은 별도 입력 없어도 기본 13명으로 채워둠 (필요시 직접 수정)
+DEFAULT_TRADES.forEach(t => addTradeRow(t, DEFAULT_TRADE_COUNTS[t] || 0, ""));
 function syncAddButton() {
   document.getElementById("addTradeRow").disabled = tradeRowsEl.children.length >= MAX_TRADE_ROWS;
 }
