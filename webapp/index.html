@@ -259,7 +259,7 @@
 </form>
 
 <script>
-const DEFAULT_TRADES = ["직  원", "직영", "전기/ESS", "기계설비/가스", "수  장", "도  장", "토  목", "펜  스"];
+const DEFAULT_TRADES = ["직  원", "직  영", "전기/ESS", "기계설비/가스", "수  장", "도  장", "토  목", "펜  스"];
 const tradeRowsEl = document.getElementById("tradeRows");
 
 function addTradeRow(name, count, work) {
@@ -293,7 +293,7 @@ syncAddButton();
 // 공종 라벨(폼에 실제 표시되는 이름) - 최소 하나의 트리거 키워드로 매칭
 const TRADE_DEFS = [
   { key: "직원",    label: "직  원",       keywords: ["직원"] },
-  { key: "직영",    label: "직영",         keywords: ["직영"] },
+  { key: "직영",    label: "직  영",         keywords: ["직영"] },
   { key: "전기ess", label: "전기/ESS",     keywords: ["전기", "ess"] },
   { key: "기계설비", label: "기계설비/가스", keywords: ["fcu", "기계", "설비", "공조", "덕트"] },
   { key: "수장",    label: "수  장",       keywords: ["내장", "수장"] },

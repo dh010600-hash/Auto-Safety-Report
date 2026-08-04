@@ -263,6 +263,10 @@ function Invoke-Submit($payload) {
     if ($prevCandidates.Count -gt 0) {
         $prevSheetName = $prevCandidates[0].Name
     }
+    try {
+        $logLine = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  today=[$todayLabel] sorted=[$($sorted.Name -join ', ')] prevSheetName=[$prevSheetName]"
+        $logLine | Out-File -FilePath (Join-Path $PSScriptRoot "submit_debug.log") -Append -Encoding utf8
+    } catch {}
 
     $createdNew = -not $existing
     if ($existing) {
