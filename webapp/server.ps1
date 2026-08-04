@@ -126,6 +126,57 @@ function Clear-CutCopyMode {
     [void]$script:Excel.GetType().InvokeMember("CutCopyMode", [System.Reflection.BindingFlags]::SetProperty, $null, $script:Excel, @($false))
 }
 
+# 일주일(7일) 넘은 날짜 시트를 월별 보관 파일로 옮기고 메인 파일에서는 지운다.
+# 가장 최근 시트(전일 무재해시간 연동에 필요)는 아무리 오래됐어도 절대 옮기지 않는다.
+function Invoke-ArchiveOldSheets {
+    $sorted = Get-DateSheetsSorted
+    if ($sorted.Count -le 1) { return }
+    $today = Get-Date
+    $toArchive = $sorted | Select-Object -Skip 1 | Where-Object { ($today - $_.Date).TotalDays -gt 7 }
+    if (-not $toArchive -or $toArchive.Count -eq 0) { return }
+
+    foreach ($item in $toArchive) {
+        $archiveName = "안전일지_보관_{0}년 {1:D2}월.xlsx" -f $item.Date.Year, $item.Date.Month
+        $archivePath = Join-Path $root $archiveName
+        $isNewArchive = -not (Test-Path $archivePath)
+        $archiveWb = $null
+        try {
+            if ($isNewArchive) {
+                $archiveWb = $script:Excel.Workbooks.Add()
+            } else {
+                $archiveWb = $script:Excel.Workbooks.Open($archivePath)
+            }
+
+            $sheetToMove = $item.Sheet
+            $sheetToMove.Visible = -1
+            $destAfter = $archiveWb.Worksheets.Item($archiveWb.Worksheets.Count)
+            $sheetToMove.Copy([System.Type]::Missing, $destAfter)
+            Clear-CutCopyMode
+
+            if ($isNewArchive) {
+                # 새로 만든 워크북의 기본 빈 시트(Sheet1 등)는 방금 옮긴 시트만 남기고 정리
+                for ($i = $archiveWb.Worksheets.Count; $i -ge 1; $i--) {
+                    if ($archiveWb.Worksheets.Item($i).Name -ne $sheetToMove.Name) {
+                        $archiveWb.Worksheets.Item($i).Delete()
+                    }
+                }
+                $archiveWb.SaveAs($archivePath, 51)
+            } else {
+                $archiveWb.Save()
+            }
+            $archiveWb.Close($false)
+            $archiveWb = $null
+
+            $script:MasterWb.Worksheets.Item($item.Name).Delete()
+            Write-Host "보관 완료: '$($item.Name)' -> $archiveName"
+        }
+        finally {
+            if ($archiveWb) { try { $archiveWb.Close($false) } catch {} }
+        }
+    }
+    $script:MasterWb.Save()
+}
+
 # 복제된 시트에서는 Range.Value/.Value2 에 숫자(double)를 대입할 때 "Double을 String으로
 # 캐스팅할 수 없음" 오류가 재현성 있게 발생한다 (TEMPLATE 원본 시트에서는 발생하지 않음).
 # 반면 숫자를 문자열로 만들어 .Formula 로 대입하면(사용자가 셀에 직접 입력하는 것과 동일한
@@ -380,6 +431,15 @@ function Invoke-Submit($payload) {
         }
         throw
     }
+}
+
+# 서버 시작할 때마다 일주일 지난 시트를 자동으로 보관 파일로 정리
+try {
+    Open-MasterForOp
+    try { Invoke-ArchiveOldSheets }
+    finally { Close-MasterForOp }
+} catch {
+    Write-Host "시트 자동 보관 중 오류 (무시하고 계속 진행): $($_.Exception.Message)"
 }
 
 # ---------- HTTP 서버 ----------
