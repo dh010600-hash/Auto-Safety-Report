@@ -26,28 +26,67 @@ function Backup-MasterFile {
 }
 Backup-MasterFile
 
-# ---------- Excel 연결 (서버 수명 동안 하나의 인스턴스를 유지) ----------
-$script:Excel = New-Object -ComObject Excel.Application
-$script:Excel.Visible = $false
-$script:Excel.DisplayAlerts = $false
-$script:MasterWb = $script:Excel.Workbooks.Open($masterPath)
+# ---------- Excel 연결: 요청이 있을 때만 열고, 끝나면 바로 닫는다 ----------
+# (서버가 파일을 계속 붙잡고 있으면 그 사이엔 사용자가 엑셀에서 직접 파일을
+#  열어 수정할 수 없으므로, 실제 처리하는 짧은 순간에만 열었다 닫는다)
+$script:Excel = $null
+$script:MasterWb = $null
+$script:ExcelPid = $null
 
-if ($script:MasterWb.ReadOnly) {
-    $script:Excel.Quit()
-    throw "마스터 파일이 다른 프로그램(Excel)에서 이미 열려 있어 읽기전용으로만 열렸습니다. 엑셀에서 해당 파일을 닫은 뒤 서버를 다시 시작해주세요."
+function Open-MasterForOp {
+    # Quit() 만으로는 EXCEL.EXE 프로세스가 완전히 안 죽는 경우가 있어(COM 참조 잔류),
+    # 새로 뜨는 프로세스의 PID를 직접 추적해서 나중에 확실히 종료시킨다.
+    $before = @(Get-Process EXCEL -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
+    $excel = New-Object -ComObject Excel.Application
+    $excel.Visible = $false
+    $excel.DisplayAlerts = $false
+    Start-Sleep -Milliseconds 300
+    $after = @(Get-Process EXCEL -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id)
+    $script:ExcelPid = $after | Where-Object { $before -notcontains $_ } | Select-Object -First 1
+
+    $wb = $excel.Workbooks.Open($masterPath)
+    if ($wb.ReadOnly) {
+        try { $wb.Close($false) } catch {}
+        try { $excel.Quit() } catch {}
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) | Out-Null
+        if ($script:ExcelPid) { Start-Sleep -Milliseconds 300; Stop-Process -Id $script:ExcelPid -Force -ErrorAction SilentlyContinue }
+        $script:ExcelPid = $null
+        throw "마스터 파일이 다른 프로그램(엑셀)에서 열려 있어 지금은 처리할 수 없습니다. 엑셀에서 파일을 닫고 다시 시도해주세요."
+    }
+    $script:Excel = $excel
+    $script:MasterWb = $wb
 }
 
-Write-Host "마스터 워크북 연결됨: $masterPath"
+function Close-MasterForOp {
+    if ($script:MasterWb) { try { $script:MasterWb.Close($false) } catch {} }
+    if ($script:Excel) {
+        try { $script:Excel.Quit() } catch {}
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($script:Excel) | Out-Null
+    }
+    $script:MasterWb = $null
+    $script:Excel = $null
+    [GC]::Collect()
+    [GC]::WaitForPendingFinalizers()
+    if ($script:ExcelPid) {
+        Start-Sleep -Milliseconds 500
+        if (Get-Process -Id $script:ExcelPid -ErrorAction SilentlyContinue) {
+            Stop-Process -Id $script:ExcelPid -Force -ErrorAction SilentlyContinue
+        }
+    }
+    $script:ExcelPid = $null
+}
 
+# 시작할 때 한 번만 열어서 TEMPLATE 시트 존재 여부만 확인하고 바로 닫는다.
+Open-MasterForOp
 $hasTemplate = $false
 foreach ($ws in $script:MasterWb.Worksheets) {
     if ($ws.Name -eq "TEMPLATE") { $hasTemplate = $true }
 }
+Close-MasterForOp
 if (-not $hasTemplate) {
-    $script:MasterWb.Close($false)
-    $script:Excel.Quit()
     throw "마스터 워크북에 TEMPLATE 시트가 없습니다. 먼저 PrepareMasterTemplate.ps1 을 실행하세요."
 }
+Write-Host "마스터 파일 확인 완료: $masterPath (평소엔 닫아둠 - 필요할 때만 열었다 닫습니다)"
 
 # ---------- 유틸 ----------
 function Get-KoreanDateLabel([datetime]$d) {
@@ -127,6 +166,50 @@ function Set-CellFormula($ws, [string]$addr, [string]$formula) {
         }
     }
     throw "셀 $addr 수식 쓰기 실패 (4회 재시도 후): $($lastErr.Exception.Message)"
+}
+
+# 사진대지 3칸 위치/크기 (실제 사람이 손으로 붙였던 사진의 좌표를 참고한 고정값, 단위: 포인트)
+$script:PhotoSlots = @(
+    @{ Left = 33;    Top = 780.8; Width = 186.8; Height = 135 },
+    @{ Left = 219.8; Top = 780.8; Width = 181.5; Height = 135 },
+    @{ Left = 401.2; Top = 780.8; Width = 176.3; Height = 135 }
+)
+
+# data:image/...;base64,... 형태의 사진을 사진대지 슬롯에 삽입.
+# 슬롯별로 이름표(AutoPhoto1~3)를 붙여, 재제출 시 우리가 넣은 사진만 교체하고
+# 사용자가 엑셀에서 직접 붙여넣은 사진은 건드리지 않는다.
+function Set-SheetPhotos($ws, $photos) {
+    if (-not $photos) { return }
+    for ($i = 0; $i -lt $photos.Count -and $i -lt $script:PhotoSlots.Count; $i++) {
+        $dataUrl = $photos[$i]
+        if (-not $dataUrl) { continue }
+        $shapeName = "AutoPhoto$($i + 1)"
+        for ($j = $ws.Shapes.Count; $j -ge 1; $j--) {
+            if ($ws.Shapes.Item($j).Name -eq $shapeName) { $ws.Shapes.Item($j).Delete() }
+        }
+        $base64 = $dataUrl -replace '^data:image/\w+;base64,', ''
+        $bytes = [System.Convert]::FromBase64String($base64)
+        $tempFile = [System.IO.Path]::Combine($env:TEMP, "safety_photo_$([guid]::NewGuid().ToString('N')).jpg")
+        [System.IO.File]::WriteAllBytes($tempFile, $bytes)
+        try {
+            $slot = $script:PhotoSlots[$i]
+            $lastErr = $null
+            $done = $false
+            for ($attempt = 1; $attempt -le 3 -and -not $done; $attempt++) {
+                try {
+                    $shape = $ws.Shapes.AddPicture($tempFile, $false, $true, $slot.Left, $slot.Top, $slot.Width, $slot.Height)
+                    $shape.Name = $shapeName
+                    $done = $true
+                } catch {
+                    $lastErr = $_
+                    Start-Sleep -Milliseconds (150 * $attempt)
+                }
+            }
+            if (-not $done) { throw "사진 $($i + 1) 삽입 실패: $($lastErr.Exception.Message)" }
+        } finally {
+            Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 # ---------- HTTP 응답 헬퍼 ----------
@@ -268,8 +351,16 @@ function Invoke-Submit($payload) {
     Set-CellValue $ws "C28" ([string]$payload.edu.civil)
     Set-CellValue $ws "C29" ([string]$payload.edu.fence)
 
-    Set-CellValue $ws "B30" ([string]$payload.progressToday)
-    Set-CellValue $ws "B31" ([string]$payload.progressPlan)
+    # 금일 진행사항 / 금주·내주 예정사항을 같은 스타일 셀에 그대로 적으면 구분이
+    # 안 되므로, 내용 앞에 항목명을 자동으로 붙여준다.
+    [string]$progressTodayRaw = $payload.progressToday
+    [string]$progressPlanRaw = $payload.progressPlan
+    $progressTodayText = if ($progressTodayRaw.Trim()) { "금일 진행사항: $($progressTodayRaw.Trim())" } else { "" }
+    $progressPlanText = if ($progressPlanRaw.Trim()) { "금주 및 내주 예정사항 : $($progressPlanRaw.Trim())" } else { "" }
+    Set-CellValue $ws "B30" $progressTodayText
+    Set-CellValue $ws "B31" $progressPlanText
+
+    Set-SheetPhotos $ws $payload.photos
 
     Backup-MasterFile
     $script:MasterWb.Save()
@@ -314,7 +405,9 @@ try {
             }
             elseif ($request.HttpMethod -eq "GET" -and $path -eq "/api/context") {
                 try {
-                    Send-Json $response (Get-ContextInfo)
+                    Open-MasterForOp
+                    try { Send-Json $response (Get-ContextInfo) }
+                    finally { Close-MasterForOp }
                 } catch {
                     Send-Json $response ([PSCustomObject]@{ ok = $false; error = $_.Exception.Message })
                 }
@@ -322,8 +415,12 @@ try {
             elseif ($request.HttpMethod -eq "POST" -and $path -eq "/api/submit") {
                 try {
                     $payload = Read-JsonBody $request
-                    $result = Invoke-Submit $payload
-                    Send-Json $response $result
+                    Open-MasterForOp
+                    try {
+                        $result = Invoke-Submit $payload
+                        Send-Json $response $result
+                    }
+                    finally { Close-MasterForOp }
                 } catch {
                     $detail = "$($_.Exception.Message) @ line $($_.InvocationInfo.ScriptLineNumber): $($_.InvocationInfo.Line.Trim())"
                     Send-Json $response ([PSCustomObject]@{ ok = $false; error = $detail }) 500
@@ -340,9 +437,5 @@ try {
 }
 finally {
     $listener.Stop()
-    $script:MasterWb.Close($false)
-    $script:Excel.Quit()
-    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($script:Excel) | Out-Null
-    [GC]::Collect()
-    [GC]::WaitForPendingFinalizers()
+    Close-MasterForOp
 }

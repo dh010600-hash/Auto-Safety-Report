@@ -91,12 +91,25 @@
   .equip-slot { display: flex; gap: 8px; margin-top: 6px; }
   .equip-slot input { flex: 1; }
   .footer-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
+  .photo-slot {
+    flex: 1; min-width: 160px; height: 160px; border: 2px dashed var(--border); border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    color: var(--muted); font-size: 12.5px; cursor: pointer; position: relative; overflow: hidden;
+    background: #fafbfc; padding: 8px;
+  }
+  .photo-slot.focused { border-color: var(--accent); background: #eef4ff; }
+  .photo-slot.filled { border-style: solid; padding: 0; }
+  .photo-slot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .photo-slot .clear-photo {
+    position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.55); color: #fff; border: none;
+    border-radius: 4px; width: 22px; height: 22px; cursor: pointer; font-size: 13px; line-height: 1;
+  }
 </style>
 </head>
 <body>
 
 <h1>AI 안전일지 - 일일 입력</h1>
-<div class="sub">교도소 신축시설 현장 · 공종별 작업사항을 입력하면 안전일지 시트가 자동 생성됩니다. (사진대지 / 산업재해 / 결재란은 비워둡니다)</div>
+<div class="sub">교도소 신축시설 현장 · 공종별 작업사항을 입력하면 안전일지 시트가 자동 생성됩니다. (산업재해 / 결재란은 비워둡니다)</div>
 
 <div id="ctxInfo">불러오는 중...</div>
 
@@ -224,12 +237,19 @@
 
   <div class="card">
     <h2>진행 / 예정 사항</h2>
+    <div class="hint" style="margin-top:-6px; margin-bottom:10px;">엑셀에 저장될 때 "금일 진행사항:" / "금주 및 내주 예정사항 :" 라벨이 앞에 자동으로 붙습니다. 아래엔 내용만 입력하세요.</div>
     <div class="row">
-      <div><label>금일 진행사항 (특이사항)</label><textarea id="progressToday" placeholder="예: 금일 진행사항: 특이사항 X"></textarea></div>
+      <div><label>금일 진행사항 (특이사항)</label><textarea id="progressToday" placeholder="예: 특이사항 X"></textarea></div>
     </div>
     <div class="row">
-      <div><label>금주 및 내주 예정사항</label><textarea id="progressPlan"></textarea></div>
+      <div><label>금주 및 내주 예정사항</label><textarea id="progressPlan" placeholder="예: 3일 Wall and Door Protection I.I, 5일 안전 점검의 날"></textarea></div>
     </div>
+  </div>
+
+  <div class="card">
+    <h2>사진대지 (사진 3장)</h2>
+    <div class="hint" style="margin-top:-6px; margin-bottom:10px;">사진을 복사한 뒤 아래 박스를 클릭하고 Ctrl+V로 붙여넣으세요. 자동으로 엑셀 사진대지 위치에 삽입됩니다.</div>
+    <div class="row" id="photoSlots"></div>
   </div>
 
   <div class="footer-actions">
@@ -239,7 +259,7 @@
 </form>
 
 <script>
-const DEFAULT_TRADES = ["직  원", "전  기", "기계설비/가스", "수  장", "도  장", "토  목", "ESS", "펜  스"];
+const DEFAULT_TRADES = ["직  원", "직영", "전기/ESS", "기계설비/가스", "수  장", "도  장", "토  목", "펜  스"];
 const tradeRowsEl = document.getElementById("tradeRows");
 
 function addTradeRow(name, count, work) {
@@ -272,13 +292,13 @@ syncAddButton();
 // ---------- 카톡 붙여넣기 파서 ----------
 // 공종 라벨(폼에 실제 표시되는 이름) - 최소 하나의 트리거 키워드로 매칭
 const TRADE_DEFS = [
-  { key: "직원",    label: "직  원",       keywords: ["직영", "직원"] },
-  { key: "전기",    label: "전  기",       keywords: ["전기"] },
+  { key: "직원",    label: "직  원",       keywords: ["직원"] },
+  { key: "직영",    label: "직영",         keywords: ["직영"] },
+  { key: "전기ess", label: "전기/ESS",     keywords: ["전기", "ess"] },
   { key: "기계설비", label: "기계설비/가스", keywords: ["fcu", "기계", "설비", "공조", "덕트"] },
   { key: "수장",    label: "수  장",       keywords: ["내장", "수장"] },
   { key: "도장",    label: "도  장",       keywords: ["도장"] },
   { key: "토목",    label: "토  목",       keywords: ["토목"] },
-  { key: "ess",     label: "ESS",         keywords: ["ess"] },
   { key: "펜스",    label: "펜  스",       keywords: ["휀스", "펜스"] }
 ];
 
@@ -503,7 +523,7 @@ document.getElementById("suggestSafetyBtn").addEventListener("click", () => {
   const weather = document.getElementById("weather").value || "";
   const isHeatWave = weather.includes("폭염");
 
-  document.getElementById("edu_elec").value = buildSafetyMessage(getTradeWork(["전  기", "ESS"]), "elec", isHeatWave, false);
+  document.getElementById("edu_elec").value = buildSafetyMessage(getTradeWork(["전기/ESS"]), "elec", isHeatWave, false);
   document.getElementById("edu_mech").value = buildSafetyMessage(getTradeWork(["기계설비/가스"]), "mech", isHeatWave, false);
   document.getElementById("edu_paint").value = buildSafetyMessage(getTradeWork(["도  장"]), "paint", isHeatWave, false);
   document.getElementById("edu_interior").value = buildSafetyMessage(getTradeWork(["수  장"]), "interior", isHeatWave, false);
@@ -569,6 +589,71 @@ async function loadContext() {
 }
 loadContext();
 
+// ---------- 사진 3장 붙여넣기 ----------
+const PHOTO_SLOT_COUNT = 3;
+const photoDataUrls = new Array(PHOTO_SLOT_COUNT).fill(null);
+const photoSlotsEl = document.getElementById("photoSlots");
+
+function resizeImageFile(file, maxDim, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = () => { img.src = reader.result; };
+    reader.onerror = reject;
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        if (width >= height) { height = Math.round(height * maxDim / width); width = maxDim; }
+        else { width = Math.round(width * maxDim / height); height = maxDim; }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function buildPhotoSlot(idx) {
+  const box = document.createElement("div");
+  box.className = "photo-slot";
+  box.tabIndex = 0;
+  box.innerHTML = `<span class="ph-hint">사진 ${idx + 1}<br>클릭 후 Ctrl+V로 붙여넣기</span>`;
+
+  box.addEventListener("focus", () => box.classList.add("focused"));
+  box.addEventListener("blur", () => box.classList.remove("focused"));
+
+  box.addEventListener("paste", async (e) => {
+    const items = (e.clipboardData || window.clipboardData).items;
+    let imageFile = null;
+    for (const item of items) {
+      if (item.type && item.type.startsWith("image/")) { imageFile = item.getAsFile(); break; }
+    }
+    if (!imageFile) return;
+    e.preventDefault();
+    const dataUrl = await resizeImageFile(imageFile, 1000, 0.82);
+    photoDataUrls[idx] = dataUrl;
+    box.classList.add("filled");
+    box.innerHTML = `<img src="${dataUrl}" /><button type="button" class="clear-photo" title="삭제">×</button>`;
+    box.querySelector(".clear-photo").addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      photoDataUrls[idx] = null;
+      box.classList.remove("filled");
+      box.innerHTML = `<span class="ph-hint">사진 ${idx + 1}<br>클릭 후 Ctrl+V로 붙여넣기</span>`;
+    });
+  });
+
+  return box;
+}
+
+for (let i = 0; i < PHOTO_SLOT_COUNT; i++) photoSlotsEl.appendChild(buildPhotoSlot(i));
+
+function getPhotoDataUrls() {
+  return photoDataUrls.slice();
+}
+
 document.getElementById("logForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const resultEl = document.getElementById("result");
@@ -607,7 +692,8 @@ document.getElementById("logForm").addEventListener("submit", async (e) => {
       fence: document.getElementById("edu_fence").value
     },
     progressToday: document.getElementById("progressToday").value,
-    progressPlan: document.getElementById("progressPlan").value
+    progressPlan: document.getElementById("progressPlan").value,
+    photos: getPhotoDataUrls()
   };
 
   const submitBtn = e.target.querySelector("button[type=submit]");
