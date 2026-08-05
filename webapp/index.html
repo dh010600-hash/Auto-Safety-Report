@@ -104,6 +104,25 @@
     position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.55); color: #fff; border: none;
     border-radius: 4px; width: 22px; height: 22px; cursor: pointer; font-size: 13px; line-height: 1;
   }
+  .popup-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45);
+    align-items: center; justify-content: center; z-index: 1000; padding: 20px;
+  }
+  .popup-overlay.show { display: flex; }
+  .popup-box {
+    background: #fff; border-radius: 14px; padding: 32px 28px 24px; max-width: 380px; width: 100%;
+    text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.25);
+    animation: popup-pop 0.18s ease-out;
+  }
+  @keyframes popup-pop { from { transform: scale(0.92); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .popup-icon {
+    width: 56px; height: 56px; border-radius: 50%; background: var(--ok); color: #fff;
+    font-size: 28px; line-height: 56px; margin: 0 auto 14px; font-weight: bold;
+  }
+  .popup-box.err .popup-icon { background: var(--danger); }
+  .popup-title { font-size: 17px; font-weight: 700; margin-bottom: 8px; color: var(--text); }
+  .popup-msg { font-size: 13.5px; color: var(--muted); line-height: 1.6; margin-bottom: 20px; white-space: pre-line; }
+  .popup-box .btn.primary { width: 100%; padding: 10px; font-size: 14px; }
 </style>
 </head>
 <body>
@@ -251,6 +270,15 @@
   </div>
   <div id="result"></div>
 </form>
+
+<div id="popupOverlay" class="popup-overlay">
+  <div class="popup-box">
+    <div id="popupIcon" class="popup-icon">✓</div>
+    <div id="popupTitle" class="popup-title">완료</div>
+    <div id="popupMsg" class="popup-msg"></div>
+    <button type="button" class="btn primary" id="popupCloseBtn">확인</button>
+  </div>
+</div>
 
 <script>
 const DEFAULT_TRADES = ["직  원", "직  영", "전기/ESS", "기계설비/가스", "수  장", "도  장", "토  목", "펜  스"];
@@ -686,6 +714,21 @@ function getPhotoDataUrls() {
   return photoDataUrls.slice();
 }
 
+// ---------- 완료/오류 팝업 ----------
+const popupOverlay = document.getElementById("popupOverlay");
+const popupBox = popupOverlay.querySelector(".popup-box");
+function showPopup(ok, title, msg) {
+  popupBox.classList.toggle("err", !ok);
+  document.getElementById("popupIcon").textContent = ok ? "✓" : "!";
+  document.getElementById("popupTitle").textContent = title;
+  document.getElementById("popupMsg").textContent = msg;
+  popupOverlay.classList.add("show");
+}
+function hidePopup() { popupOverlay.classList.remove("show"); }
+document.getElementById("popupCloseBtn").addEventListener("click", hidePopup);
+popupOverlay.addEventListener("click", (e) => { if (e.target === popupOverlay) hidePopup(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") hidePopup(); });
+
 document.getElementById("logForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const resultEl = document.getElementById("result");
@@ -741,14 +784,17 @@ document.getElementById("logForm").addEventListener("submit", async (e) => {
     if (data.ok) {
       resultEl.className = "ok";
       resultEl.textContent = `완료: "${data.sheetName}" 시트가 생성되었습니다. 엑셀 파일을 열어 사진대지 / 산업재해 / 결재란만 채워주세요.`;
+      showPopup(true, "생성 완료", `"${data.sheetName}" 시트가 생성되었습니다.\n엑셀 파일을 열어 사진대지 / 산업재해 / 결재란만 채워주세요.`);
       loadContext();
     } else {
       resultEl.className = "err";
       resultEl.textContent = "오류: " + (data.error || "알 수 없는 오류");
+      showPopup(false, "생성 실패", data.error || "알 수 없는 오류가 발생했습니다.");
     }
   } catch (err) {
     resultEl.className = "err";
     resultEl.textContent = "서버와 통신할 수 없습니다: " + err;
+    showPopup(false, "생성 실패", "서버와 통신할 수 없습니다: " + err);
   } finally {
     submitBtn.disabled = false;
     submitBtn.textContent = "엑셀 안전일지에 오늘자 시트 생성";
