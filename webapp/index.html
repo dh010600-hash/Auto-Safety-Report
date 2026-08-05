@@ -525,32 +525,40 @@ document.getElementById("parseKakaoBtn").addEventListener("click", () => {
 });
 
 // ---------- 작업내용 기반 안전지시사항 자동 제안 ----------
+// 아래 문구는 산업안전보건기준에 관한 규칙(안전보건규칙) 및 고용노동부 지침을 참고해서 다듬음:
+//   - 화재감시자: 제241조의2 (용접·용단 작업반경 11m 이내 가연물)
+//   - 절연용 보호구/작업공간: 제310조 (감전 방지)
+//   - 추락 방지/안전대: 제42조 (작업높이 2m 이상 시 안전모+안전대)
+//   - 유기용제 환기: 관리대상 유해물질 관련 국소배기장치·전체환기장치 가동 의무
+//   - 굴착작업 위험방지: 제340조 (흙막이 지보공, 출입금지구역)
+//   - 건설기계 유도자(신호수) 배치: 제171조 등
+//   - 온열질환: 고용노동부 "물·그늘·휴식" 3대 기본수칙 (폭염주의보 매시간 10분, 폭염경보 매시간 15분 휴식)
 const SAFETY_RULES = {
   elec: [
-    { kws: ["배관", "결선", "전등", "전열", "배선", "소방", "cctv", "통신", "직압", "분전반", "차단기", "케이블", "인입", "판넬"], msg: "활선 접촉 및 감전 주의, 절연장갑·절연공구 사용, 작업 전 차단기 상태 확인" },
-    { kws: ["고소", "천장", "사다리"], msg: "고소작업대/사다리 전도 주의, 안전모 및 안전대 착용" },
-    { kws: ["ess", "배터리", "축전지"], msg: "과충전·누전 및 화재 주의, 소화기(전기화재용) 비치 확인" }
+    { kws: ["배관", "결선", "전등", "전열", "배선", "소방", "cctv", "통신", "직압", "분전반", "차단기", "케이블", "인입", "판넬"], msg: "감전 방지를 위해 작업 전 차단기 차단·검전 확인, 절연장갑 등 절연용 보호구 착용" },
+    { kws: ["고소", "천장", "사다리"], msg: "고소작업대·사다리 전도 주의, 작업높이 2m 이상 시 안전모 및 안전대 착용" },
+    { kws: ["ess", "배터리", "축전지"], msg: "과충전·누전으로 인한 화재 주의, 전기화재용 소화기 비치 확인" }
   ],
   mech: [
-    { kws: ["용접", "절단", "그라인더"], msg: "화재감시자 배치 및 소화기 비치, 불티 비산 방지막 설치" },
+    { kws: ["용접", "절단", "그라인더"], msg: "화재감시자 배치 및 소화기 비치, 작업반경 11m 이내 가연물 제거 또는 방염포 설치" },
     { kws: ["시운전"], msg: "시운전 중 회전체·고온부 접촉 주의, 정비 전 전원 차단(LOTO) 확인" },
     { kws: ["배관", "덕트", "기구", "설치", "인양"], msg: "중량물 취급시 협착 주의 및 2인 1조 작업" },
     { kws: ["가스", "냉매", "압력", "밸브"], msg: "가스 누출 및 압력 방출 주의, 작업 전 밸브·압력계 확인 및 환기" }
   ],
   paint: [
-    { kws: ["에폭시", "샌딩", "페인트", "퍼티", "도장", "프라이머", "스프레이", "락카", "신나"], msg: "유기용제 중독 및 화재 예방을 위해 방독마스크 착용, 배풍기·송풍기로 환기 실시, 화기 엄금" }
+    { kws: ["에폭시", "샌딩", "페인트", "퍼티", "도장", "프라이머", "스프레이", "락카", "신나"], msg: "유기용제 중독 및 화재 예방을 위해 방독마스크 착용, 국소배기장치·전체환기장치 상시 가동, 화기 엄금" }
   ],
   interior: [
-    { kws: ["s/l", "타일", "석고보드", "천장", "실링", "취부", "몰딩", "도배", "경량"], msg: "고소작업(S/L) 사용시 안전대 체결 필수, 낙하물 방지 및 안전모 착용" },
+    { kws: ["s/l", "타일", "석고보드", "천장", "실링", "취부", "몰딩", "도배", "경량"], msg: "작업높이 2m 이상 시 안전모 및 안전대 착용 필수(S/L 사용시 안전대 체결), 낙하물 방지조치" },
     { kws: ["유리", "창호"], msg: "유리 파손 및 낙하 주의, 절단면 취급시 방검장갑 착용" }
   ],
   civil: [
-    { kws: ["굴착", "양수", "거푸집", "골재", "토공", "아스콘", "기초", "흙막이", "되메우기", "배수"], msg: "굴착사면 붕괴 및 장비 협착 주의, 신호수 배치 및 출입금지구역 설정" },
-    { kws: ["백호", "롤러", "로라", "덤프", "장비", "크레인", "양중"], msg: "중장비 이동 경로 확인 및 유도자 배치" }
+    { kws: ["굴착", "양수", "거푸집", "골재", "토공", "아스콘", "기초", "흙막이", "되메우기", "배수"], msg: "굴착면 붕괴 위험 방지를 위해 흙막이 지보공 설치 및 근로자 출입금지구역 설정" },
+    { kws: ["백호", "롤러", "로라", "덤프", "장비", "크레인", "양중"], msg: "건설기계 접촉·협착 방지를 위해 유도자(신호수) 배치 및 이동 경로 확인" }
   ],
   fence: [
     { kws: ["천공", "기초", "양수", "주름관"], msg: "천공·기초 작업시 장비 협착 및 자재 낙하 주의" },
-    { kws: ["장비", "백호", "크레인"], msg: "장비 이동 경로 확인 및 신호수 배치" },
+    { kws: ["장비", "백호", "크레인"], msg: "건설기계 접촉 방지를 위해 유도자(신호수) 배치" },
     { kws: ["용접", "절단"], msg: "화재감시자 배치 및 소화기 비치" }
   ]
 };
@@ -568,31 +576,43 @@ function getTradeWork(labels) {
   return texts.join(", ");
 }
 
-function buildSafetyMessage(workText, ruleKey, isHeatWave, heatApplicable) {
+// 고용노동부 "물·그늘·휴식" 3대 기본수칙: 폭염주의보(33도 이상) 매시간 10분,
+// 폭염경보(35도 이상) 매시간 15분 휴식 (기존에 쓰던 "2시간마다 30분"은 실제 기준과 달라 수정)
+function getHeatRestPhrase(weatherText) {
+  if (weatherText.includes("폭염경보")) {
+    return "폭염경보 발령 중이므로 물·그늘·휴식 3대 기본수칙에 따라 매시간 15분 이상 그늘에서 휴식 및 수분 섭취";
+  }
+  if (weatherText.includes("폭염주의보")) {
+    return "폭염주의보 발령 중이므로 물·그늘·휴식 3대 기본수칙에 따라 매시간 10분 이상 그늘에서 휴식 및 수분 섭취";
+  }
+  return null;
+}
+
+function buildSafetyMessage(workText, ruleKey, heatPhrase, heatApplicable) {
   if (!workText) return "금일 작업 X";
   const lower = workText.toLowerCase();
   const rules = SAFETY_RULES[ruleKey] || [];
   const msgs = [];
   rules.forEach(r => { if (r.kws.some(k => lower.includes(k))) msgs.push(r.msg); });
   if (msgs.length === 0) msgs.push("개인보호구(안전모/안전화) 착용 및 작업 전 위험요소 확인");
-  if (isHeatWave && heatApplicable) msgs.push("폭염 대비 수분 섭취 및 2시간 작업 후 최소 30분 이상 휴식 준수");
+  if (heatPhrase && heatApplicable) msgs.push(heatPhrase);
   return msgs.join(", ");
 }
 
 document.getElementById("suggestSafetyBtn").addEventListener("click", () => {
   const weather = document.getElementById("weather").value || "";
-  const isHeatWave = weather.includes("폭염");
+  const heatPhrase = getHeatRestPhrase(weather);
 
-  document.getElementById("edu_elec").value = buildSafetyMessage(getTradeWork(["전기/ESS"]), "elec", isHeatWave, false);
-  document.getElementById("edu_mech").value = buildSafetyMessage(getTradeWork(["기계설비/가스"]), "mech", isHeatWave, false);
-  document.getElementById("edu_paint").value = buildSafetyMessage(getTradeWork(["도  장"]), "paint", isHeatWave, false);
-  document.getElementById("edu_interior").value = buildSafetyMessage(getTradeWork(["수  장"]), "interior", isHeatWave, false);
-  document.getElementById("edu_civil").value = buildSafetyMessage(getTradeWork(["토  목"]), "civil", isHeatWave, true);
-  document.getElementById("edu_fence").value = buildSafetyMessage(getTradeWork(["펜  스"]), "fence", isHeatWave, true);
+  document.getElementById("edu_elec").value = buildSafetyMessage(getTradeWork(["전기/ESS"]), "elec", heatPhrase, false);
+  document.getElementById("edu_mech").value = buildSafetyMessage(getTradeWork(["기계설비/가스"]), "mech", heatPhrase, false);
+  document.getElementById("edu_paint").value = buildSafetyMessage(getTradeWork(["도  장"]), "paint", heatPhrase, false);
+  document.getElementById("edu_interior").value = buildSafetyMessage(getTradeWork(["수  장"]), "interior", heatPhrase, false);
+  document.getElementById("edu_civil").value = buildSafetyMessage(getTradeWork(["토  목"]), "civil", heatPhrase, true);
+  document.getElementById("edu_fence").value = buildSafetyMessage(getTradeWork(["펜  스"]), "fence", heatPhrase, true);
 
   if (!document.getElementById("edu_daily").value.trim()) {
-    document.getElementById("edu_daily").value = isHeatWave
-      ? "온열질환 예방 수칙 강조, 개인보호구 착용 및 휴식시간 준수 강조"
+    document.getElementById("edu_daily").value = heatPhrase
+      ? "온열질환 예방(물·그늘·휴식 3대 기본수칙) 강조, 개인보호구 착용 및 휴식시간 준수 강조"
       : "개인보호구 착용 및 안전수칙 준수 강조";
   }
 
