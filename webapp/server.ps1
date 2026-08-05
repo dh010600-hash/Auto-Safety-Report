@@ -379,15 +379,17 @@ function Invoke-Submit($payload) {
     [string]$v20 = if ($c.heat.ok) { "온열질환 자율 점검 결과 이상 무" } else { [string]$c.heat.note }
     Set-CellValue $ws "B20" $v20
 
+    # 장비 여러 대는 사용자가 실제로 쓰던 형식대로 "(장비명 1대, 장비명 1대, ...)" 한 칸에 콤마로 묶는다.
     if ($c.equip.ok) {
-        if ($c.equip.equip1.name) {
-            [string]$v21 = "장비 ($([string]$c.equip.equip1.name) $([int]$c.equip.equip1.qty)대)  점검 결과 이상 무"
+        $equipItems = @($c.equip.items) | Where-Object { $_ -and $_.name }
+        if ($equipItems.Count -gt 0) {
+            $parts = $equipItems | ForEach-Object { "$($_.name) $([int]$_.qty)대" }
+            [string]$v21 = "장비 ($($parts -join ', ')) 점검 결과 이상 무"
             Set-CellValue $ws "B21" $v21
-        } else { Set-CellValue $ws "B21" $null }
-        if ($c.equip.equip2.name) {
-            [string]$vs21 = "장비 ($([string]$c.equip.equip2.name) $([int]$c.equip.equip2.qty)대) 점검 결과 이상 무"
-            Set-CellValue $ws "S21" $vs21
-        } else { Set-CellValue $ws "S21" $null }
+        } else {
+            Set-CellValue $ws "B21" $null
+        }
+        Set-CellValue $ws "S21" $null
     } else {
         [string]$v21b = $c.equip.note
         Set-CellValue $ws "B21" $v21b

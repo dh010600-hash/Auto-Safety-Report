@@ -196,19 +196,13 @@
         <input type="checkbox" id="chk_equip" checked />
         <label for="chk_equip">장비 점검 결과 이상 무</label>
       </div>
-      <div class="equip-slot">
-        <input type="text" id="equip1_name" placeholder="장비명/규격 (예: B/H 02)" />
-        <input type="number" id="equip1_qty" placeholder="대수" value="1" min="0" style="max-width:80px;" />
-      </div>
-      <div class="equip-slot">
-        <input type="text" id="equip2_name" placeholder="장비명/규격 (예: B/H 06w)" />
-        <input type="number" id="equip2_qty" placeholder="대수" value="1" min="0" style="max-width:80px;" />
-      </div>
+      <div id="equipSlots"></div>
+      <button type="button" class="btn" id="addEquipSlot" style="margin-top:6px;">+ 장비 추가</button>
       <div class="extra"><textarea id="note_equip" placeholder="이상 있을 경우 내용 입력"></textarea></div>
     </div>
     <div>
       <label>위험성평가에 관한 조치 (선택)</label>
-      <textarea id="riskAction"></textarea>
+      <textarea id="riskAction">장비 Checklist 확인</textarea>
     </div>
   </div>
 
@@ -288,6 +282,38 @@ document.getElementById("addTradeRow").addEventListener("click", () => {
 });
 new MutationObserver(syncAddButton).observe(tradeRowsEl, { childList: true });
 syncAddButton();
+
+// ---------- 장비 점검 슬롯 (최대 5개) ----------
+const MAX_EQUIP_SLOTS = 5;
+const equipSlotsEl = document.getElementById("equipSlots");
+const addEquipBtn = document.getElementById("addEquipSlot");
+
+function addEquipSlot(name, qty) {
+  if (equipSlotsEl.children.length >= MAX_EQUIP_SLOTS) return null;
+  const div = document.createElement("div");
+  div.className = "equip-slot";
+  div.innerHTML = `
+    <input type="text" class="eq-name" placeholder="장비명/규격 (예: B/H 02)" value="${name || ''}" />
+    <input type="number" class="eq-qty" placeholder="대수" value="${qty || 1}" min="0" style="max-width:80px;" />
+    <button type="button" class="del" title="삭제" style="flex-shrink:0;background:none;border:none;color:var(--danger);cursor:pointer;">×</button>
+  `;
+  div.querySelector(".del").addEventListener("click", () => { div.remove(); syncAddEquipButton(); });
+  equipSlotsEl.appendChild(div);
+  syncAddEquipButton();
+  return div;
+}
+function syncAddEquipButton() {
+  addEquipBtn.disabled = equipSlotsEl.children.length >= MAX_EQUIP_SLOTS;
+}
+addEquipSlot("", 1);
+addEquipSlot("", 1);
+addEquipBtn.addEventListener("click", () => addEquipSlot("", 1));
+
+function getEquipEntries() {
+  return Array.from(equipSlotsEl.querySelectorAll(".equip-slot"))
+    .map(s => ({ name: s.querySelector(".eq-name").value.trim(), qty: Number(s.querySelector(".eq-qty").value || 0) }))
+    .filter(e => e.name);
+}
 
 // ---------- 카톡 붙여넣기 파서 ----------
 // 공종 라벨(폼에 실제 표시되는 이름) - 최소 하나의 트리거 키워드로 매칭
@@ -442,15 +468,17 @@ function applyParsedTrades(parsed) {
     filled++;
   });
 
-  // 장비 점검란: 비어있을 때만 파싱된 장비 최대 2개 채움 (수동 입력값 보존)
-  const e1n = document.getElementById("equip1_name");
-  const e1q = document.getElementById("equip1_qty");
-  const e2n = document.getElementById("equip2_name");
-  const e2q = document.getElementById("equip2_qty");
+  // 장비 점검란: 비어있는 슬롯에 파싱된 장비를 채우고, 모자라면 슬롯을 늘려서 채움(최대 5개)
   const uniqueEquip = [];
   allEquip.forEach(e => { if (!uniqueEquip.some(u => u.name === e.name)) uniqueEquip.push(e); });
-  if (uniqueEquip[0] && !e1n.value.trim()) { e1n.value = uniqueEquip[0].name; e1q.value = uniqueEquip[0].qty; }
-  if (uniqueEquip[1] && !e2n.value.trim()) { e2n.value = uniqueEquip[1].name; e2q.value = uniqueEquip[1].qty; }
+  const emptySlots = Array.from(equipSlotsEl.querySelectorAll(".equip-slot")).filter(s => !s.querySelector(".eq-name").value.trim());
+  uniqueEquip.forEach(e => {
+    let slot = emptySlots.shift();
+    if (!slot) slot = addEquipSlot("", 1);
+    if (!slot) return;
+    slot.querySelector(".eq-name").value = e.name;
+    slot.querySelector(".eq-qty").value = e.qty;
+  });
 
   return filled;
 }
@@ -471,27 +499,31 @@ document.getElementById("parseKakaoBtn").addEventListener("click", () => {
 // ---------- 작업내용 기반 안전지시사항 자동 제안 ----------
 const SAFETY_RULES = {
   elec: [
-    { kws: ["배관", "결선", "전등", "전열", "배선", "소방", "cctv", "통신", "직압"], msg: "활선 접촉 및 감전 주의, 절연장갑·절연공구 사용, 작업 전 차단기 상태 확인" },
-    { kws: ["고소", "천장", "사다리"], msg: "고소작업대/사다리 전도 주의, 안전모 및 안전대 착용" }
+    { kws: ["배관", "결선", "전등", "전열", "배선", "소방", "cctv", "통신", "직압", "분전반", "차단기", "케이블", "인입", "판넬"], msg: "활선 접촉 및 감전 주의, 절연장갑·절연공구 사용, 작업 전 차단기 상태 확인" },
+    { kws: ["고소", "천장", "사다리"], msg: "고소작업대/사다리 전도 주의, 안전모 및 안전대 착용" },
+    { kws: ["ess", "배터리", "축전지"], msg: "과충전·누전 및 화재 주의, 소화기(전기화재용) 비치 확인" }
   ],
   mech: [
-    { kws: ["용접", "절단"], msg: "화재감시자 배치 및 소화기 비치, 불티 비산 방지막 설치" },
+    { kws: ["용접", "절단", "그라인더"], msg: "화재감시자 배치 및 소화기 비치, 불티 비산 방지막 설치" },
     { kws: ["시운전"], msg: "시운전 중 회전체·고온부 접촉 주의, 정비 전 전원 차단(LOTO) 확인" },
-    { kws: ["배관", "덕트", "기구", "설치"], msg: "중량물 취급시 협착 주의 및 2인 1조 작업" }
+    { kws: ["배관", "덕트", "기구", "설치", "인양"], msg: "중량물 취급시 협착 주의 및 2인 1조 작업" },
+    { kws: ["가스", "냉매", "압력", "밸브"], msg: "가스 누출 및 압력 방출 주의, 작업 전 밸브·압력계 확인 및 환기" }
   ],
   paint: [
-    { kws: ["에폭시", "샌딩", "페인트", "퍼티", "도장", "프라이머"], msg: "유기용제 중독 및 화재 예방을 위해 방독마스크 착용, 배풍기·송풍기로 환기 실시, 화기 엄금" }
+    { kws: ["에폭시", "샌딩", "페인트", "퍼티", "도장", "프라이머", "스프레이", "락카", "신나"], msg: "유기용제 중독 및 화재 예방을 위해 방독마스크 착용, 배풍기·송풍기로 환기 실시, 화기 엄금" }
   ],
   interior: [
-    { kws: ["s/l", "타일", "석고보드", "천장", "실링", "취부"], msg: "고소작업(S/L) 사용시 안전대 체결 필수, 낙하물 방지 및 안전모 착용" }
+    { kws: ["s/l", "타일", "석고보드", "천장", "실링", "취부", "몰딩", "도배", "경량"], msg: "고소작업(S/L) 사용시 안전대 체결 필수, 낙하물 방지 및 안전모 착용" },
+    { kws: ["유리", "창호"], msg: "유리 파손 및 낙하 주의, 절단면 취급시 방검장갑 착용" }
   ],
   civil: [
-    { kws: ["굴착", "양수", "거푸집", "골재", "토공", "아스콘", "기초"], msg: "굴착사면 붕괴 및 장비 협착 주의, 신호수 배치 및 출입금지구역 설정" },
-    { kws: ["백호", "롤러", "로라", "덤프", "장비"], msg: "중장비 이동 경로 확인 및 유도자 배치" }
+    { kws: ["굴착", "양수", "거푸집", "골재", "토공", "아스콘", "기초", "흙막이", "되메우기", "배수"], msg: "굴착사면 붕괴 및 장비 협착 주의, 신호수 배치 및 출입금지구역 설정" },
+    { kws: ["백호", "롤러", "로라", "덤프", "장비", "크레인", "양중"], msg: "중장비 이동 경로 확인 및 유도자 배치" }
   ],
   fence: [
     { kws: ["천공", "기초", "양수", "주름관"], msg: "천공·기초 작업시 장비 협착 및 자재 낙하 주의" },
-    { kws: ["장비", "백호"], msg: "장비 이동 경로 확인 및 신호수 배치" }
+    { kws: ["장비", "백호", "크레인"], msg: "장비 이동 경로 확인 및 신호수 배치" },
+    { kws: ["용접", "절단"], msg: "화재감시자 배치 및 소화기 비치" }
   ]
 };
 
@@ -678,8 +710,7 @@ document.getElementById("logForm").addEventListener("submit", async (e) => {
       sl:      { ok: document.getElementById("chk_sl").checked, note: document.getElementById("note_sl").value, count: Number(document.getElementById("sl_count").value || 0) },
       heat:    { ok: document.getElementById("chk_heat").checked, note: document.getElementById("note_heat").value },
       equip:   { ok: document.getElementById("chk_equip").checked, note: document.getElementById("note_equip").value,
-                 equip1: { name: document.getElementById("equip1_name").value, qty: Number(document.getElementById("equip1_qty").value || 0) },
-                 equip2: { name: document.getElementById("equip2_name").value, qty: Number(document.getElementById("equip2_qty").value || 0) } }
+                 items: getEquipEntries() }
     },
     riskAction: document.getElementById("riskAction").value,
     edu: {

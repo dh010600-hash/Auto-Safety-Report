@@ -52,11 +52,26 @@ function Get-KoreanWeatherText {
 }
 
 function Get-TodayWeather {
-    $uri = "https://api.open-meteo.com/v1/forecast?latitude=$($script:PaengseongLat)&longitude=$($script:PaengseongLon)&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=Asia%2FSeoul"
+    $uri = "https://api.open-meteo.com/v1/forecast?latitude=$($script:PaengseongLat)&longitude=$($script:PaengseongLon)&hourly=weathercode&daily=temperature_2m_max,temperature_2m_min&timezone=Asia%2FSeoul&forecast_days=1"
     $w = Invoke-RestMethod -Uri $uri -TimeoutSec 15
-    $code = [int]$w.daily.weathercode[0]
+
     $tmax = [double]$w.daily.temperature_2m_max[0]
     $tmin = [double]$w.daily.temperature_2m_min[0]
+
+    # Open-Meteo의 daily weathercode는 새벽에 잠깐 스친 이슬비 하나 때문에 하루 전체가
+    # "이슬비"로 나오는 등, 하루를 대표하기엔 부정확할 때가 있다. 그래서 근무시간대
+    # (07~18시) hourly weathercode 중 가장 많이 나온 코드를 그 날의 대표 날씨로 쓴다.
+    $workHourCodes = @()
+    for ($i = 0; $i -lt $w.hourly.time.Count; $i++) {
+        $hour = [int]($w.hourly.time[$i].Substring(11, 2))
+        if ($hour -ge 7 -and $hour -le 18) {
+            $workHourCodes += [int]$w.hourly.weathercode[$i]
+        }
+    }
+    if ($workHourCodes.Count -eq 0) { $workHourCodes = @([int]$w.hourly.weathercode[12]) }
+
+    $code = [int](($workHourCodes | Group-Object | Sort-Object Count -Descending | Select-Object -First 1).Name)
+
     $text = Get-KoreanWeatherText -WeatherCode $code -TMax $tmax -TMin $tmin
     return [PSCustomObject]@{
         Text = $text
