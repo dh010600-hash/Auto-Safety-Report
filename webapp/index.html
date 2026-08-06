@@ -218,10 +218,7 @@
       <div id="equipSlots"></div>
       <button type="button" class="btn" id="addEquipSlot" style="margin-top:6px;">+ 장비 추가</button>
       <div class="extra"><textarea id="note_equip" placeholder="이상 있을 경우 내용 입력"></textarea></div>
-    </div>
-    <div>
-      <label>위험성평가에 관한 조치 (선택)</label>
-      <textarea id="riskAction">장비 Checklist 확인</textarea>
+      <div class="hint">장비를 입력하면 "장비 Checklist 확인" 문구가 자동으로 들어갑니다 (직접 입력하실 필요 없음).</div>
     </div>
   </div>
 
@@ -847,7 +844,6 @@ document.getElementById("logForm").addEventListener("submit", async (e) => {
       equip:   { ok: document.getElementById("chk_equip").checked, note: document.getElementById("note_equip").value,
                  items: getEquipEntries() }
     },
-    riskAction: document.getElementById("riskAction").value,
     edu: {
       daily: document.getElementById("edu_daily").value,
       items: Array.from(document.querySelectorAll("#eduRows .edu-slot")).map(slot => ({

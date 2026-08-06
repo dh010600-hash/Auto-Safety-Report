@@ -219,11 +219,11 @@ function Set-CellFormula($ws, [string]$addr, [string]$formula) {
     throw "셀 $addr 수식 쓰기 실패 (4회 재시도 후): $($lastErr.Exception.Message)"
 }
 
-# 사진대지 3칸 위치/크기 (실제 사람이 손으로 붙였던 사진의 좌표를 참고한 고정값, 단위: 포인트)
+# 사진대지 3칸 위치/크기 (B32:G37, H32:L37, M32:R37 병합 셀의 실제 좌표, 단위: 포인트)
 $script:PhotoSlots = @(
-    @{ Left = 33;    Top = 780.8; Width = 186.8; Height = 135 },
-    @{ Left = 219.8; Top = 780.8; Width = 181.5; Height = 135 },
-    @{ Left = 401.2; Top = 780.8; Width = 176.3; Height = 135 }
+    @{ Left = 33;     Top = 780.75; Width = 186.75; Height = 135 },
+    @{ Left = 219.75; Top = 780.75; Width = 181.5;  Height = 135 },
+    @{ Left = 401.25; Top = 780.75; Width = 176.25; Height = 135 }
 )
 
 # data:image/...;base64,... 형태의 사진을 사진대지 슬롯에 삽입.
@@ -244,11 +244,34 @@ function Set-SheetPhotos($ws, $photos) {
         [System.IO.File]::WriteAllBytes($tempFile, $bytes)
         try {
             $slot = $script:PhotoSlots[$i]
+
+            # 박스에 Width/Height를 그대로 지정하면 사진이 늘어나거나 찌그러져 보이므로,
+            # 원본 픽셀 크기를 먼저 읽어서 비율을 유지한 채(contain) 박스 중앙에 들어갈
+            # 최종 크기/위치를 계산한 뒤 한 번에 그 크기로 삽입한다.
+            Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
+            $img = [System.Drawing.Image]::FromFile($tempFile)
+            $pxW = $img.Width
+            $pxH = $img.Height
+            $img.Dispose()
+            $nativeW = $pxW * 0.75   # 96 DPI 기준 픽셀 -> 포인트 변환
+            $nativeH = $pxH * 0.75
+            $finalW = $slot.Width
+            $finalH = $slot.Height
+            $finalLeft = $slot.Left
+            $finalTop = $slot.Top
+            if ($nativeW -gt 0 -and $nativeH -gt 0) {
+                $scale = [Math]::Min($slot.Width / $nativeW, $slot.Height / $nativeH)
+                $finalW = $nativeW * $scale
+                $finalH = $nativeH * $scale
+                $finalLeft = $slot.Left + ($slot.Width - $finalW) / 2
+                $finalTop = $slot.Top + ($slot.Height - $finalH) / 2
+            }
+
             $lastErr = $null
             $done = $false
             for ($attempt = 1; $attempt -le 3 -and -not $done; $attempt++) {
                 try {
-                    $shape = $ws.Shapes.AddPicture($tempFile, $false, $true, $slot.Left, $slot.Top, $slot.Width, $slot.Height)
+                    $shape = $ws.Shapes.AddPicture($tempFile, $false, $true, [single]$finalLeft, [single]$finalTop, [single]$finalW, [single]$finalH)
                     $shape.Name = $shapeName
                     $done = $true
                 } catch {
@@ -380,24 +403,27 @@ function Invoke-Submit($payload) {
     Set-CellValue $ws "B20" $v20
 
     # 장비 여러 대는 사용자가 실제로 쓰던 형식대로 "(장비명 1대, 장비명 1대, ...)" 한 칸에 콤마로 묶는다.
+    # I21은 "장비 Checklist 확인" 문구 전용 칸으로, 장비가 실제로 있을 때만 채운다(없으면 비움).
+    # I16은 "위험성평가에 관한 조치" 표(header) 칸이라 절대 덮어쓰지 않는다.
     if ($c.equip.ok) {
         $equipItems = @($c.equip.items) | Where-Object { $_ -and $_.name }
         if ($equipItems.Count -gt 0) {
             $parts = $equipItems | ForEach-Object { "$($_.name) $([int]$_.qty)대" }
             [string]$v21 = "장비 ($($parts -join ', ')) 점검 결과 이상 무"
             Set-CellValue $ws "B21" $v21
+            Set-CellValue $ws "I21" "장비 Checklist 확인"
         } else {
             Set-CellValue $ws "B21" $null
+            Set-CellValue $ws "I21" $null
         }
         Set-CellValue $ws "S21" $null
     } else {
         [string]$v21b = $c.equip.note
         Set-CellValue $ws "B21" $v21b
+        Set-CellValue $ws "I21" $null
         Set-CellValue $ws "S21" $null
     }
-
-    [string]$vRisk = $payload.riskAction
-    Set-CellValue $ws "I16" $vRisk
+    Set-CellValue $ws "Z21" $null
 
     # 안전관계기록 - 공종별 안전지시사항은 엑셀 물리 슬롯이 6개(24~29행)뿐이라
     # 폼에서 온 개수만큼(최대 6개) 라벨(B열)과 내용(C열)을 함께 채우고, 남는 칸은 비운다.
