@@ -399,14 +399,21 @@ function Invoke-Submit($payload) {
     [string]$vRisk = $payload.riskAction
     Set-CellValue $ws "I16" $vRisk
 
-    # 안전관계기록
+    # 안전관계기록 - 공종별 안전지시사항은 엑셀 물리 슬롯이 6개(24~29행)뿐이라
+    # 폼에서 온 개수만큼(최대 6개) 라벨(B열)과 내용(C열)을 함께 채우고, 남는 칸은 비운다.
     Set-CellValue $ws "C23" ([string]$payload.edu.daily)
-    Set-CellValue $ws "C24" ([string]$payload.edu.elec)
-    Set-CellValue $ws "C25" ([string]$payload.edu.mech)
-    Set-CellValue $ws "C26" ([string]$payload.edu.paint)
-    Set-CellValue $ws "C27" ([string]$payload.edu.interior)
-    Set-CellValue $ws "C28" ([string]$payload.edu.civil)
-    Set-CellValue $ws "C29" ([string]$payload.edu.fence)
+    $eduItems = @($payload.edu.items) | Where-Object { $_ -and $_.trade }
+    $eduRowNumbers = 24..29
+    for ($i = 0; $i -lt $eduRowNumbers.Count; $i++) {
+        $row = $eduRowNumbers[$i]
+        if ($i -lt $eduItems.Count) {
+            Set-CellValue $ws "B$row" ([string]$eduItems[$i].trade)
+            Set-CellValue $ws "C$row" ([string]$eduItems[$i].text)
+        } else {
+            Set-CellValue $ws "B$row" $null
+            Set-CellValue $ws "C$row" $null
+        }
+    }
 
     # 금일 진행사항 / 금주·내주 예정사항을 같은 스타일 셀에 그대로 적으면 구분이
     # 안 되므로, 내용 앞에 항목명을 자동으로 붙여준다.

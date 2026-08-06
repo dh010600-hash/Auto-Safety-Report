@@ -234,18 +234,9 @@
     <div class="row">
       <div><label>일일 안전 교육</label><textarea id="edu_daily" placeholder="예: 온열질환 예방 수칙 강조, 개인보호구 착용 및 휴식시간 준수 강조"></textarea></div>
     </div>
-    <div class="row">
-      <div><label>전기 / ESS</label><textarea id="edu_elec" placeholder="금일 작업 X"></textarea></div>
-      <div><label>기계 설비</label><textarea id="edu_mech" placeholder="금일 작업 X"></textarea></div>
-    </div>
-    <div class="row">
-      <div><label>도장</label><textarea id="edu_paint" placeholder="금일 작업 X"></textarea></div>
-      <div><label>수장</label><textarea id="edu_interior" placeholder="금일 작업 X"></textarea></div>
-    </div>
-    <div class="row">
-      <div><label>토목</label><textarea id="edu_civil" placeholder="금일 작업 X"></textarea></div>
-      <div><label>펜스</label><textarea id="edu_fence" placeholder="금일 작업 X"></textarea></div>
-    </div>
+    <div id="eduRows" class="row"></div>
+    <div class="hint">위 공종별 인원/작업내용의 "직원/직영"을 제외한 나머지 공종과 자동으로 동일하게 맞춰집니다
+      (공종을 추가/삭제/이름변경하면 여기도 같이 바뀝니다). 엑셀 서식상 최대 6개까지 지원합니다.</div>
   </div>
 
   <div class="card">
@@ -294,6 +285,7 @@ function addTradeRow(name, count, work) {
     <button type="button" class="del" title="행 삭제">삭제</button>
   `;
   div.querySelector(".del").addEventListener("click", () => div.remove());
+  div.querySelector(".t-name").addEventListener("input", () => syncEduRows());
   tradeRowsEl.appendChild(div);
 }
 
@@ -309,6 +301,7 @@ document.getElementById("addTradeRow").addEventListener("click", () => {
   syncAddButton();
 });
 new MutationObserver(syncAddButton).observe(tradeRowsEl, { childList: true });
+new MutationObserver(() => syncEduRows()).observe(tradeRowsEl, { childList: true });
 syncAddButton();
 
 // ---------- 장비 점검 슬롯 (최대 5개) ----------
@@ -364,6 +357,69 @@ function matchTradeByTitle(title) {
   return null;
 }
 
+// 카톡 메시지 제목에서 회사/팀 이름만 추출 (인식 안 되는 새 공종을 그 이름으로 새 행 추가할 때 사용)
+function cleanTitleForNewTrade(title) {
+  return title
+    .replace(/예정\s*작업\s*사항|작업\s*사항/g, "")
+    .replace(/[\[\]_]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// ---------- 안전관계기록: 공종 목록(직원/직영 제외)과 동적으로 동기화 ----------
+const RULE_KEY_MAP = { "전기ess": "elec", "기계설비": "mech", "수장": "interior", "도장": "paint", "토목": "civil", "펜스": "fence" };
+const EDU_EXCLUDE = ["직원", "직영"];
+const MAX_EDU_ROWS = 6;
+
+function getRuleKeyForTradeName(name) {
+  const norm = name.replace(/\s+/g, "");
+  const def = TRADE_DEFS.find(d => d.label.replace(/\s+/g, "") === norm);
+  return def ? RULE_KEY_MAP[def.key] : null;
+}
+
+function syncEduRows() {
+  const eduRowsEl = document.getElementById("eduRows");
+  if (!eduRowsEl) return;
+  const tradeNames = Array.from(tradeRowsEl.querySelectorAll(".trade-row"))
+    .map(r => r.querySelector(".t-name").value.trim())
+    .filter(n => n && !EDU_EXCLUDE.includes(n.replace(/\s+/g, "")));
+
+  const targetNames = tradeNames.slice(0, MAX_EDU_ROWS);
+  const overflowCount = tradeNames.length - targetNames.length;
+
+  const existing = {};
+  eduRowsEl.querySelectorAll(".edu-slot").forEach(el => { existing[el.dataset.trade] = el; });
+
+  eduRowsEl.innerHTML = "";
+  targetNames.forEach(name => {
+    const el = existing[name] || (() => {
+      const d = document.createElement("div");
+      d.className = "edu-slot";
+      d.dataset.trade = name;
+      d.innerHTML = `<label></label><textarea class="edu-text" placeholder="금일 작업 X"></textarea>`;
+      return d;
+    })();
+    el.dataset.trade = name;
+    el.querySelector("label").textContent = name;
+    eduRowsEl.appendChild(el);
+  });
+
+  let overflowEl = document.getElementById("eduOverflowNote");
+  if (overflowCount > 0) {
+    if (!overflowEl) {
+      overflowEl = document.createElement("div");
+      overflowEl.id = "eduOverflowNote";
+      overflowEl.className = "hint";
+      overflowEl.style.color = "var(--danger)";
+      eduRowsEl.parentElement.appendChild(overflowEl);
+    }
+    overflowEl.textContent = `공종이 ${MAX_EDU_ROWS}개를 초과해서 ${overflowCount}개는 안전관계기록에 자동으로 반영되지 못했습니다. 필요하면 공종을 정리해주세요.`;
+  } else if (overflowEl) {
+    overflowEl.remove();
+  }
+}
+syncEduRows();
+
 // 카톡 텍스트를 파싱해서 { key, label, count, workItems[], equipMentions[] } 배열로 반환
 function parseKakaoText(text) {
   const lines = text.split(/\r?\n/);
@@ -417,7 +473,12 @@ function parseKakaoText(text) {
     const h3 = line.match(HEADER3_RE);
     if (h3) {
       const title = h3[3];
-      const def = matchTradeByTitle(title);
+      let def = matchTradeByTitle(title);
+      if (!def) {
+        // 기존 8개 공종 키워드에 안 걸리는 새 팀/공정 -> 제목에서 이름만 뽑아 새 공종으로 취급
+        const cleanName = cleanTitleForNewTrade(title);
+        if (cleanName) def = { key: "new:" + cleanName.replace(/\s+/g, ""), label: cleanName };
+      }
       current = def ? getBlock(def) : null;
       section = null;
       continue;
@@ -490,11 +551,21 @@ function applyParsedTrades(parsed) {
       addTradeRow(p.label, 0, "");
       row = tradeRowsEl.lastElementChild;
     }
+    if (!row) {
+      // 8칸이 이미 다 차있으면, 아직 인원/작업내용이 비어있는(=오늘 안 쓴) 기본 공종 자리를
+      // 새 공종 이름으로 재활용한다 (그래야 새로 등장한 팀도 반영됨).
+      const emptyRow = rows.find(r => !r.querySelector(".t-work").value.trim() && Number(r.querySelector(".t-count").value || 0) === 0);
+      if (emptyRow) {
+        emptyRow.querySelector(".t-name").value = p.label;
+        row = emptyRow;
+      }
+    }
     if (!row) return;
     row.querySelector(".t-count").value = p.count;
     row.querySelector(".t-work").value = p.work;
     filled++;
   });
+  syncEduRows();
 
   // 장비 점검란: 비어있는 슬롯에 파싱된 장비를 채우고, 모자라면 슬롯을 늘려서 채움(최대 5개)
   const uniqueEquip = [];
@@ -603,12 +674,13 @@ document.getElementById("suggestSafetyBtn").addEventListener("click", () => {
   const weather = document.getElementById("weather").value || "";
   const heatPhrase = getHeatRestPhrase(weather);
 
-  document.getElementById("edu_elec").value = buildSafetyMessage(getTradeWork(["전기/ESS"]), "elec", heatPhrase, false);
-  document.getElementById("edu_mech").value = buildSafetyMessage(getTradeWork(["기계설비/가스"]), "mech", heatPhrase, false);
-  document.getElementById("edu_paint").value = buildSafetyMessage(getTradeWork(["도  장"]), "paint", heatPhrase, false);
-  document.getElementById("edu_interior").value = buildSafetyMessage(getTradeWork(["수  장"]), "interior", heatPhrase, false);
-  document.getElementById("edu_civil").value = buildSafetyMessage(getTradeWork(["토  목"]), "civil", heatPhrase, true);
-  document.getElementById("edu_fence").value = buildSafetyMessage(getTradeWork(["펜  스"]), "fence", heatPhrase, true);
+  syncEduRows();
+  document.querySelectorAll("#eduRows .edu-slot").forEach(slot => {
+    const name = slot.dataset.trade;
+    const ruleKey = getRuleKeyForTradeName(name);
+    const heatApplicable = ruleKey === "civil" || ruleKey === "fence";
+    slot.querySelector(".edu-text").value = buildSafetyMessage(getTradeWork([name]), ruleKey, heatPhrase, heatApplicable);
+  });
 
   if (!document.getElementById("edu_daily").value.trim()) {
     document.getElementById("edu_daily").value = heatPhrase
@@ -778,12 +850,10 @@ document.getElementById("logForm").addEventListener("submit", async (e) => {
     riskAction: document.getElementById("riskAction").value,
     edu: {
       daily: document.getElementById("edu_daily").value,
-      elec: document.getElementById("edu_elec").value,
-      mech: document.getElementById("edu_mech").value,
-      paint: document.getElementById("edu_paint").value,
-      interior: document.getElementById("edu_interior").value,
-      civil: document.getElementById("edu_civil").value,
-      fence: document.getElementById("edu_fence").value
+      items: Array.from(document.querySelectorAll("#eduRows .edu-slot")).map(slot => ({
+        trade: slot.dataset.trade,
+        text: slot.querySelector(".edu-text").value
+      }))
     },
     progressToday: document.getElementById("progressToday").value,
     progressPlan: document.getElementById("progressPlan").value,
