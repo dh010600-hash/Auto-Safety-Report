@@ -203,22 +203,6 @@ function Set-CellValue($ws, [string]$addr, $value) {
     throw "셀 $addr 쓰기 실패 (4회 재시도 후): $($lastErr.Exception.Message)"
 }
 
-# 다른 시트를 참조하는 수식을 직접 넣을 때 사용 (예: 전일 무재해시간을 전날 시트의
-# C5 셀에 실시간으로 연동 - 전날 값이 나중에 수정되어도 자동으로 반영됨)
-function Set-CellFormula($ws, [string]$addr, [string]$formula) {
-    $lastErr = $null
-    for ($attempt = 1; $attempt -le 4; $attempt++) {
-        try {
-            $ws.Range($addr).Formula = $formula
-            return
-        } catch {
-            $lastErr = $_
-            Start-Sleep -Milliseconds (100 * $attempt)
-        }
-    }
-    throw "셀 $addr 수식 쓰기 실패 (4회 재시도 후): $($lastErr.Exception.Message)"
-}
-
 # 사진대지 3칸 위치/크기 (B32:G37, H32:L37, M32:R37 병합 셀의 실제 좌표, 단위: 포인트)
 $script:PhotoSlots = @(
     @{ Left = 33;     Top = 780.75; Width = 186.75; Height = 135 },
@@ -326,6 +310,113 @@ function Get-ContextInfo {
     return [PSCustomObject]@{ ok = $true; lastSheetName = $last.Name; prevAccidentFreeHours = [double]$hours }
 }
 
+# "전일 내용 불러오기" 기능용: 오늘 시트를 제외한 가장 최근 날짜 시트의 값을 읽어서
+# Invoke-Submit이 받는 payload와 같은 모양으로 되돌려준다 (역파싱). 셀에 저장된 문구가
+# 표준 문구(예: "일일 안전점검 결과 이상 무")와 정확히 같으면 체크 ok=true로, 다르면
+# 그 문구를 note로 보고 ok=false로 되돌린다.
+function Get-PrevDayInfo {
+    $today = Get-Date
+    $todayLabel = Get-KoreanDateLabel $today
+    $sorted = Get-DateSheetsSorted
+    $prevCandidates = $sorted | Where-Object { $_.Name.Trim() -ne $todayLabel.Trim() }
+    if (-not $prevCandidates -or $prevCandidates.Count -eq 0) {
+        return [PSCustomObject]@{ ok = $false; error = "불러올 이전 시트가 없습니다." }
+    }
+    $ws = $prevCandidates[0].Sheet
+    $sheetName = $prevCandidates[0].Name
+
+    $trades = @()
+    for ($row = 8; $row -le 15; $row++) {
+        $name = $ws.Range("A$row").Value2
+        if ([string]::IsNullOrWhiteSpace([string]$name)) { continue }
+        $count = $ws.Range("C$row").Value2
+        $work = $ws.Range("F$row").Value2
+        $trades += [PSCustomObject]@{
+            name = ([string]$name).Trim()
+            count = if ($null -ne $count) { [double]$count } else { 0 }
+            work = if ($work) { ([string]$work).Trim() } else { "" }
+        }
+    }
+
+    function Parse-StandardCheck([string]$raw, [string]$standard) {
+        $t = if ($raw) { $raw.Trim() } else { "" }
+        if ($t -eq $standard) { return [PSCustomObject]@{ ok = $true; note = "" } }
+        return [PSCustomObject]@{ ok = $false; note = $t }
+    }
+
+    $b17 = [string]$ws.Range("B17").Value2
+    $b18 = [string]$ws.Range("B18").Value2
+    $b19 = [string]$ws.Range("B19").Value2
+    $b20 = [string]$ws.Range("B20").Value2
+    $b21 = [string]$ws.Range("B21").Value2
+
+    $safety = Parse-StandardCheck $b17 "일일 안전점검 결과 이상 무"
+    $hazmat = Parse-StandardCheck $b18 "위험물 저장소 점검 결과 이상 무"
+    $heat   = Parse-StandardCheck $b20 "온열질환 자율 점검 결과 이상 무"
+
+    $slText = if ($b19) { $b19.Trim() } else { "" }
+    $slMatch = [regex]::Match($slText, '^S/L\s*\((\d+)대\)\s*점검 결과 이상 무$')
+    if ($slMatch.Success) {
+        $sl = [PSCustomObject]@{ ok = $true; note = ""; count = [int]$slMatch.Groups[1].Value }
+    } else {
+        $sl = [PSCustomObject]@{ ok = $false; note = $slText; count = 5 }
+    }
+
+    $equipText = if ($b21) { $b21.Trim() } else { "" }
+    $equipMatch = [regex]::Match($equipText, '^장비\s*\((.+)\)\s*점검 결과 이상 무$')
+    $equipItems = @()
+    $equipOk = $true
+    $equipNote = ""
+    if ($equipMatch.Success) {
+        foreach ($part in ($equipMatch.Groups[1].Value -split ',\s*')) {
+            $pm = [regex]::Match($part.Trim(), '^(.+?)\s+(\d+)대$')
+            if ($pm.Success) {
+                $equipItems += [PSCustomObject]@{ name = $pm.Groups[1].Value.Trim(); qty = [int]$pm.Groups[2].Value }
+            }
+        }
+    } elseif ($equipText) {
+        $equipOk = $false
+        $equipNote = $equipText
+    }
+
+    $eduDaily = [string]$ws.Range("C23").Value2
+    $eduItems = @()
+    for ($row = 24; $row -le 29; $row++) {
+        $trade = $ws.Range("B$row").Value2
+        if ([string]::IsNullOrWhiteSpace([string]$trade)) { continue }
+        $text = $ws.Range("C$row").Value2
+        $eduItems += [PSCustomObject]@{ trade = ([string]$trade).Trim(); text = if ($text) { ([string]$text).Trim() } else { "" } }
+    }
+
+    $progressTodayRaw = [string]$ws.Range("B30").Value2
+    $progressPlanRaw = [string]$ws.Range("B31").Value2
+    $progressToday = if ($progressTodayRaw) { ($progressTodayRaw -replace '^금일 진행사항:\s*', '').Trim() } else { "" }
+    $progressPlan = if ($progressPlanRaw) { ($progressPlanRaw -replace '^금주 및 내주 예정사항\s*:\s*', '').Trim() } else { "" }
+
+    $prevWorkHours = $ws.Range("I6").Value2
+    $excludeAm = $ws.Range("W16").Value2
+    $excludePm = $ws.Range("Y16").Value2
+
+    return [PSCustomObject]@{
+        ok = $true
+        sheetName = $sheetName
+        trades = $trades
+        checks = [PSCustomObject]@{
+            safety = $safety
+            hazmat = $hazmat
+            sl = $sl
+            heat = $heat
+            equip = [PSCustomObject]@{ ok = $equipOk; note = $equipNote; items = $equipItems }
+        }
+        edu = [PSCustomObject]@{ daily = if ($eduDaily) { $eduDaily.Trim() } else { "" }; items = $eduItems }
+        progressToday = $progressToday
+        progressPlan = $progressPlan
+        prevWorkHours = if ($null -ne $prevWorkHours) { [double]$prevWorkHours } else { 10 }
+        excludeAm = if ($null -ne $excludeAm) { [double]$excludeAm } else { 0 }
+        excludePm = if ($null -ne $excludePm) { [double]$excludePm } else { 0 }
+    }
+}
+
 function Invoke-Submit($payload) {
     $today = Get-Date
     $todayLabel = Get-KoreanDateLabel $today
@@ -363,13 +454,12 @@ function Invoke-Submit($payload) {
     Set-CellValue $ws "I6" ([double]$payload.prevWorkHours)
     Set-CellValue $ws "W16" ([double]$payload.excludeAm)
     Set-CellValue $ws "Y16" ([double]$payload.excludePm)
-    if ($prevSheetName) {
-        # 전일 시트의 C5(무재해달성시간)를 실시간으로 참조 - 전날 값이 나중에 수정돼도 자동 반영
-        $escapedName = $prevSheetName.Trim().Replace("'", "''")
-        Set-CellFormula $ws "T20" "='$escapedName'!C5"
-    } else {
-        Set-CellValue $ws "T20" 0
-    }
+    # 전일 무재해시간은 폼에서 직접 받은 값을 그대로 스냅샷으로 저장한다 (예전에는
+    # 전일 시트 C5를 실시간으로 참조하는 수식을 넣었는데, 그 전일 시트가 나중에 삭제/보관되면
+    # 참조가 끊겨 =#REF! 로 깨지고 그 뒤 모든 날짜의 무재해시간이 연쇄적으로 깨지는 문제가 있었다.
+    # 값으로 저장하면 그런 연쇄 손상이 없고, 격주 근무 등으로 전일 시트를 다른 사람이 작성해서
+    # 자동 이월 값이 실제와 다를 때도 사용자가 직접 고쳐 넣을 수 있다.)
+    Set-CellValue $ws "T20" ([double]$payload.prevAccidentFreeHours)
 
     # 공종별 인원/작업내용 (8~15행 슬롯에 순서대로 매핑)
     $row = 8
@@ -506,6 +596,15 @@ try {
                 try {
                     Open-MasterForOp
                     try { Send-Json $response (Get-ContextInfo) }
+                    finally { Close-MasterForOp }
+                } catch {
+                    Send-Json $response ([PSCustomObject]@{ ok = $false; error = $_.Exception.Message })
+                }
+            }
+            elseif ($request.HttpMethod -eq "GET" -and $path -eq "/api/prev-day") {
+                try {
+                    Open-MasterForOp
+                    try { Send-Json $response (Get-PrevDayInfo) }
                     finally { Close-MasterForOp }
                 } catch {
                     Send-Json $response ([PSCustomObject]@{ ok = $false; error = $_.Exception.Message })

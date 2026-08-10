@@ -123,6 +123,18 @@
   .popup-title { font-size: 17px; font-weight: 700; margin-bottom: 8px; color: var(--text); }
   .popup-msg { font-size: 13.5px; color: var(--muted); line-height: 1.6; margin-bottom: 20px; white-space: pre-line; }
   .popup-box .btn.primary { width: 100%; padding: 10px; font-size: 14px; }
+  .preview-box { max-width: 580px; text-align: left; max-height: 84vh; overflow-y: auto; }
+  .preview-box .popup-title { text-align: left; }
+  .preview-body { font-size: 13px; }
+  .preview-section { margin-bottom: 14px; }
+  .preview-section h3 { font-size: 13px; margin: 0 0 6px; color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  .preview-section > div { margin-bottom: 3px; line-height: 1.5; }
+  .preview-section ul { margin: 0; padding-left: 18px; }
+  .preview-section li { margin-bottom: 3px; line-height: 1.5; }
+  .preview-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .preview-table td { border: 1px solid var(--border); padding: 5px 7px; vertical-align: top; }
+  .preview-box .footer-actions { margin-top: 16px; }
+  .preview-box .footer-actions .btn { flex: 1; }
 </style>
 </head>
 <body>
@@ -131,6 +143,10 @@
 <div class="sub">교도소 신축시설 현장 · 공종별 작업사항을 입력하면 안전일지 시트가 자동 생성됩니다. (산업재해 / 결재란은 비워둡니다)</div>
 
 <div id="ctxInfo">불러오는 중...</div>
+<div class="footer-actions" style="justify-content:flex-start; margin-bottom:8px;">
+  <button type="button" class="btn" id="loadPrevDayBtn">전일 내용 불러오기</button>
+</div>
+<div id="loadPrevStatus" class="hint" style="margin-bottom:14px;"></div>
 
 <form id="logForm">
 
@@ -159,6 +175,11 @@
       <div>
         <label>오후 제외 인원</label>
         <input type="number" id="excludePm" value="0" min="0" />
+      </div>
+      <div>
+        <label>전일 무재해시간</label>
+        <input type="number" id="prevAccidentFreeHours" value="0" />
+        <div class="hint" style="margin-top:4px;">직전 시트에서 자동으로 불러오되, 직접 수정할 수 있습니다 (격주 근무 등으로 직전 시트가 다른 사람이 작성해 값이 안 맞을 때 사용).</div>
       </div>
     </div>
   </div>
@@ -265,6 +286,17 @@
     <div id="popupTitle" class="popup-title">완료</div>
     <div id="popupMsg" class="popup-msg"></div>
     <button type="button" class="btn primary" id="popupCloseBtn">확인</button>
+  </div>
+</div>
+
+<div id="previewOverlay" class="popup-overlay">
+  <div class="popup-box preview-box">
+    <div class="popup-title">제출 전 최종 확인</div>
+    <div id="previewBody" class="preview-body"></div>
+    <div class="footer-actions">
+      <button type="button" class="btn" id="previewCancelBtn">돌아가서 수정</button>
+      <button type="button" class="btn primary" id="previewConfirmBtn">이 내용으로 제출</button>
+    </div>
   </div>
 </div>
 
@@ -728,7 +760,8 @@ async function loadContext() {
     const res = await fetch("/api/context");
     const data = await res.json();
     if (data.ok) {
-      el.textContent = `직전 시트: ${data.lastSheetName} · 전일 무재해시간 ${data.prevAccidentFreeHours.toLocaleString()}시간 -> 오늘 시트에 자동 이월됩니다.`;
+      el.textContent = `직전 시트: ${data.lastSheetName} · 전일 무재해시간 ${data.prevAccidentFreeHours.toLocaleString()}시간 -> 아래 "전일 무재해시간" 칸에 자동으로 채워집니다 (필요하면 직접 수정하세요).`;
+      document.getElementById("prevAccidentFreeHours").value = data.prevAccidentFreeHours;
     } else {
       el.textContent = "직전 시트 정보를 불러오지 못했습니다: " + (data.error || "");
     }
@@ -816,25 +849,25 @@ function showPopup(ok, title, msg) {
 function hidePopup() { popupOverlay.classList.remove("show"); }
 document.getElementById("popupCloseBtn").addEventListener("click", hidePopup);
 popupOverlay.addEventListener("click", (e) => { if (e.target === popupOverlay) hidePopup(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") hidePopup(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  hidePopup();
+  document.getElementById("previewOverlay").classList.remove("show");
+});
 
-document.getElementById("logForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const resultEl = document.getElementById("result");
-  resultEl.className = "";
-  resultEl.style.display = "none";
-
+function buildPayload() {
   const trades = Array.from(tradeRowsEl.querySelectorAll(".trade-row")).map(row => ({
     name: row.querySelector(".t-name").value.trim(),
     count: Number(row.querySelector(".t-count").value || 0),
     work: row.querySelector(".t-work").value.trim()
   })).filter(t => t.name);
 
-  const payload = {
+  return {
     weather: document.getElementById("weather").value,
     prevWorkHours: Number(document.getElementById("prevWorkHours").value || 10),
     excludeAm: Number(document.getElementById("excludeAm").value || 0),
     excludePm: Number(document.getElementById("excludePm").value || 0),
+    prevAccidentFreeHours: Number(document.getElementById("prevAccidentFreeHours").value || 0),
     trades: trades,
     checks: {
       safety:  { ok: document.getElementById("chk_safety").checked, note: document.getElementById("note_safety").value },
@@ -855,8 +888,14 @@ document.getElementById("logForm").addEventListener("submit", async (e) => {
     progressPlan: document.getElementById("progressPlan").value,
     photos: getPhotoDataUrls()
   };
+}
 
-  const submitBtn = e.target.querySelector("button[type=submit]");
+async function doSubmit(payload) {
+  const resultEl = document.getElementById("result");
+  resultEl.className = "";
+  resultEl.style.display = "none";
+
+  const submitBtn = document.querySelector('#logForm button[type=submit]');
   submitBtn.disabled = true;
   submitBtn.textContent = "생성 중...";
 
@@ -884,6 +923,137 @@ document.getElementById("logForm").addEventListener("submit", async (e) => {
   } finally {
     submitBtn.disabled = false;
     submitBtn.textContent = "엑셀 안전일지에 오늘자 시트 생성";
+  }
+}
+
+// ---------- 제출 전 미리보기 ----------
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function buildPreviewHtml(payload) {
+  const tradesHtml = payload.trades.length
+    ? payload.trades.map(t => `<tr><td>${escapeHtml(t.name)}</td><td>${t.count}명</td><td>${escapeHtml(t.work) || "-"}</td></tr>`).join("")
+    : `<tr><td colspan="3">입력된 공종 없음</td></tr>`;
+
+  const c = payload.checks;
+  const checkLine = (label, chk) => `<li><b>${label}</b>: ${chk.ok ? "이상 무" : (escapeHtml(chk.note) || "(특이사항 미입력)")}</li>`;
+  const equipLine = c.equip.ok
+    ? (c.equip.items.length ? escapeHtml(c.equip.items.map(i => `${i.name} ${i.qty}대`).join(", ")) + " - 이상 무" : "장비 없음")
+    : (escapeHtml(c.equip.note) || "(특이사항 미입력)");
+
+  const eduFilled = payload.edu.items.filter(i => i.text.trim());
+  const eduItemsHtml = eduFilled.length
+    ? eduFilled.map(i => `<li><b>${escapeHtml(i.trade)}</b>: ${escapeHtml(i.text)}</li>`).join("")
+    : "<li>입력 없음</li>";
+
+  const photoCount = payload.photos.filter(Boolean).length;
+
+  return `
+    <div class="preview-section"><h3>기본 정보</h3>
+      <div>날짜: ${escapeHtml(document.getElementById("todayLabel").value)}</div>
+      <div>날씨: ${escapeHtml(payload.weather) || "(미입력)"}</div>
+      <div>근로시간: ${payload.prevWorkHours}시간 · 오전 제외 ${payload.excludeAm}명 · 오후 제외 ${payload.excludePm}명</div>
+      <div>전일 무재해시간: ${payload.prevAccidentFreeHours.toLocaleString()}시간</div>
+    </div>
+    <div class="preview-section"><h3>공종별 인원 / 작업내용</h3>
+      <table class="preview-table"><tbody>${tradesHtml}</tbody></table>
+    </div>
+    <div class="preview-section"><h3>일일 위험성평가</h3>
+      <ul>
+        ${checkLine("일일 안전점검", c.safety)}
+        ${checkLine("위험물 저장소", c.hazmat)}
+        <li><b>S/L</b>: ${c.sl.ok ? `${c.sl.count}대 이상 무` : (escapeHtml(c.sl.note) || "(특이사항 미입력)")}</li>
+        ${checkLine("온열질환", c.heat)}
+        <li><b>장비 점검</b>: ${equipLine}</li>
+      </ul>
+    </div>
+    <div class="preview-section"><h3>안전관계기록</h3>
+      <div>일일 교육: ${escapeHtml(payload.edu.daily) || "(미입력)"}</div>
+      <ul>${eduItemsHtml}</ul>
+    </div>
+    <div class="preview-section"><h3>진행 / 예정사항</h3>
+      <div>금일 진행사항: ${escapeHtml(payload.progressToday) || "(미입력)"}</div>
+      <div>금주 및 내주 예정사항: ${escapeHtml(payload.progressPlan) || "(미입력)"}</div>
+    </div>
+    <div class="preview-section"><h3>사진</h3>
+      <div>${photoCount}장 첨부됨</div>
+    </div>
+  `;
+}
+
+const previewOverlay = document.getElementById("previewOverlay");
+document.getElementById("logForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const payload = buildPayload();
+  document.getElementById("previewBody").innerHTML = buildPreviewHtml(payload);
+  previewOverlay.classList.add("show");
+  document.getElementById("previewConfirmBtn").onclick = () => {
+    previewOverlay.classList.remove("show");
+    doSubmit(payload);
+  };
+});
+document.getElementById("previewCancelBtn").addEventListener("click", () => previewOverlay.classList.remove("show"));
+previewOverlay.addEventListener("click", (e) => { if (e.target === previewOverlay) previewOverlay.classList.remove("show"); });
+
+// ---------- 전일 내용 불러오기 ----------
+function applyPrevDayData(data) {
+  tradeRowsEl.innerHTML = "";
+  (data.trades || []).slice(0, MAX_TRADE_ROWS).forEach(t => addTradeRow(t.name, t.count, t.work));
+  syncAddButton();
+
+  document.getElementById("prevWorkHours").value = data.prevWorkHours != null ? data.prevWorkHours : 10;
+  document.getElementById("excludeAm").value = data.excludeAm != null ? data.excludeAm : 0;
+  document.getElementById("excludePm").value = data.excludePm != null ? data.excludePm : 0;
+
+  const c = data.checks || {};
+  ["safety", "hazmat", "heat"].forEach(key => {
+    if (!c[key]) return;
+    document.getElementById("chk_" + key).checked = !!c[key].ok;
+    document.getElementById("note_" + key).value = c[key].note || "";
+  });
+  if (c.sl) {
+    document.getElementById("chk_sl").checked = !!c.sl.ok;
+    document.getElementById("note_sl").value = c.sl.note || "";
+    document.getElementById("sl_count").value = c.sl.count || 5;
+  }
+  if (c.equip) {
+    document.getElementById("chk_equip").checked = !!c.equip.ok;
+    document.getElementById("note_equip").value = c.equip.note || "";
+    equipSlotsEl.innerHTML = "";
+    const items = (c.equip.items && c.equip.items.length) ? c.equip.items : [{ name: "", qty: 1 }, { name: "", qty: 1 }];
+    items.forEach(it => addEquipSlot(it.name, it.qty));
+    syncAddEquipButton();
+  }
+  ["safety", "hazmat", "sl", "heat", "equip"].forEach(key => {
+    document.getElementById("chk_" + key).dispatchEvent(new Event("change"));
+  });
+
+  document.getElementById("edu_daily").value = (data.edu && data.edu.daily) || "";
+  syncEduRows();
+  const eduMap = {};
+  ((data.edu && data.edu.items) || []).forEach(it => { eduMap[it.trade.replace(/\s+/g, "")] = it.text; });
+  document.querySelectorAll("#eduRows .edu-slot").forEach(slot => {
+    const key = slot.dataset.trade.replace(/\s+/g, "");
+    if (eduMap[key] !== undefined) slot.querySelector(".edu-text").value = eduMap[key];
+  });
+
+  document.getElementById("progressToday").value = data.progressToday || "";
+  document.getElementById("progressPlan").value = data.progressPlan || "";
+}
+
+document.getElementById("loadPrevDayBtn").addEventListener("click", async () => {
+  const statusEl = document.getElementById("loadPrevStatus");
+  if (!confirm("전일 시트 내용을 불러와서 현재 입력값을 덮어씁니다. 계속할까요?")) return;
+  statusEl.textContent = "불러오는 중...";
+  try {
+    const res = await fetch("/api/prev-day");
+    const data = await res.json();
+    if (!data.ok) { statusEl.textContent = "불러오기 실패: " + (data.error || ""); return; }
+    applyPrevDayData(data);
+    statusEl.textContent = `"${data.sheetName}" 시트 내용을 불러왔습니다. 확인 후 오늘에 맞게 수정해주세요.`;
+  } catch (e) {
+    statusEl.textContent = "불러오기 실패: 서버와 통신할 수 없습니다.";
   }
 });
 </script>
