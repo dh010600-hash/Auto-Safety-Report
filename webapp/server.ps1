@@ -18,11 +18,26 @@ if (-not (Test-Path $masterPath)) { throw "마스터 파일을 찾을 수 없습
 # (엑셀 COM 자동화 중 강제종료 등으로 파일이 손상/데이터 유실될 경우를 대비)
 $backupDir = Join-Path $root "backups"
 if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Path $backupDir | Out-Null }
+
+# OneDrive에도 최신 파일 사본을 하나 유지해서, 다른 PC/아이패드 등에서 OneDrive/Excel
+# 앱으로 언제든 최신 안전일지를 열람할 수 있게 한다 (버전 여러 개가 아니라 최신본 1개만 미러링).
+$oneDriveRoot = Join-Path $env:USERPROFILE "OneDrive"
+$oneDriveBackupDir = Join-Path $oneDriveRoot "AI 안전일지 백업"
+
 function Backup-MasterFile {
     $backupName = "안전일지_백업_{0}.xlsx" -f (Get-Date -Format "yyyyMMdd_HHmmss")
     Copy-Item -Path $masterPath -Destination (Join-Path $backupDir $backupName) -Force
     # 오래된 백업 정리 (최근 30개만 유지 - 원본이 25MB 안팎이라 무한정 쌓이지 않도록)
     Get-ChildItem $backupDir -Filter "안전일지_백업_*.xlsx" | Sort-Object LastWriteTime -Descending | Select-Object -Skip 30 | Remove-Item -Force -ErrorAction SilentlyContinue
+
+    try {
+        if (Test-Path $oneDriveRoot) {
+            if (-not (Test-Path $oneDriveBackupDir)) { New-Item -ItemType Directory -Path $oneDriveBackupDir | Out-Null }
+            Copy-Item -Path $masterPath -Destination (Join-Path $oneDriveBackupDir (Split-Path -Leaf $masterPath)) -Force
+        }
+    } catch {
+        # OneDrive 미러링은 부가 기능이므로 실패해도 서버 동작에는 영향을 주지 않는다.
+    }
 }
 Backup-MasterFile
 
