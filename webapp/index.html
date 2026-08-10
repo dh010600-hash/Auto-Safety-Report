@@ -307,12 +307,17 @@ const tradeRowsEl = document.getElementById("tradeRows");
 function addTradeRow(name, count, work) {
   const div = document.createElement("div");
   div.className = "trade-row";
+  // 공종명/작업내용 값은 HTML 문자열에 직접 끼워넣지 않고(따옴표·꺾쇠 등이 들어있으면
+  // 태그 구조가 깨질 수 있음) 요소를 만든 뒤 .value 속성으로 안전하게 채운다.
   div.innerHTML = `
-    <div class="name"><label>공종</label><input type="text" class="t-name" value="${name || ''}" /></div>
-    <div class="cnt"><label>인원</label><input type="number" class="t-count" min="0" value="${count || 0}" /></div>
-    <div class="work"><label>작업내용</label><textarea class="t-work" rows="1">${work || ''}</textarea></div>
+    <div class="name"><label>공종</label><input type="text" class="t-name" /></div>
+    <div class="cnt"><label>인원</label><input type="number" class="t-count" min="0" /></div>
+    <div class="work"><label>작업내용</label><textarea class="t-work" rows="1"></textarea></div>
     <button type="button" class="del" title="행 삭제">삭제</button>
   `;
+  div.querySelector(".t-name").value = name || "";
+  div.querySelector(".t-count").value = count || 0;
+  div.querySelector(".t-work").value = work || "";
   div.querySelector(".del").addEventListener("click", () => div.remove());
   div.querySelector(".t-name").addEventListener("input", () => syncEduRows());
   tradeRowsEl.appendChild(div);
@@ -343,10 +348,12 @@ function addEquipSlot(name, qty) {
   const div = document.createElement("div");
   div.className = "equip-slot";
   div.innerHTML = `
-    <input type="text" class="eq-name" placeholder="장비명/규격 (예: B/H 02)" value="${name || ''}" />
-    <input type="number" class="eq-qty" placeholder="대수" value="${qty || 1}" min="0" style="max-width:80px;" />
+    <input type="text" class="eq-name" placeholder="장비명/규격 (예: B/H 02)" />
+    <input type="number" class="eq-qty" placeholder="대수" min="0" style="max-width:80px;" />
     <button type="button" class="del" title="삭제" style="flex-shrink:0;background:none;border:none;color:var(--danger);cursor:pointer;">×</button>
   `;
+  div.querySelector(".eq-name").value = name || "";
+  div.querySelector(".eq-qty").value = qty || 1;
   div.querySelector(".del").addEventListener("click", () => { div.remove(); syncAddEquipButton(); });
   equipSlotsEl.appendChild(div);
   syncAddEquipButton();
