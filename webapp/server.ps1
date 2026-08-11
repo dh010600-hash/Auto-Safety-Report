@@ -203,6 +203,15 @@ function Set-CellValue($ws, [string]$addr, $value) {
     throw "셀 $addr 쓰기 실패 (4회 재시도 후): $($lastErr.Exception.Message)"
 }
 
+# 일일 위험성평가의 단순 체크 항목(안전점검/위험물저장소/S-L/온열질환/순회점검) 공통 처리.
+# B열에는 "{라벨} 이상 무" / "{라벨} 이상 유"를 항상 명시적으로 적고, I열("위험성평가에
+# 관한 조치")에는 유(이상 있음)일 때만 사용자가 입력한 조치/코멘트를 적는다.
+function Write-CheckRow($ws, [string]$bAddr, [string]$iAddr, [string]$label, $chk) {
+    $suffix = if ($chk.ok) { "이상 무" } else { "이상 유" }
+    Set-CellValue $ws $bAddr "$label $suffix"
+    Set-CellValue $ws $iAddr (if ($chk.ok) { $null } else { [string]$chk.note })
+}
+
 # 사진대지 3칸 위치/크기 (B32:G37, H32:L37, M32:R37 병합 셀의 실제 좌표, 단위: 포인트)
 $script:PhotoSlots = @(
     @{ Left = 33;     Top = 780.75; Width = 186.75; Height = 135 },
@@ -338,32 +347,39 @@ function Get-PrevDayInfo {
         }
     }
 
-    function Parse-StandardCheck([string]$raw, [string]$standard) {
-        $t = if ($raw) { $raw.Trim() } else { "" }
-        if ($t -eq $standard) { return [PSCustomObject]@{ ok = $true; note = "" } }
-        return [PSCustomObject]@{ ok = $false; note = $t }
+    # B열이 "... 이상 무" / "... 이상 유"로 끝나면 새 형식(코멘트는 I열에 별도로 있음)이고,
+    # 그 접미사 없이 그냥 자유 텍스트만 있으면 이 기능을 넣기 전(구 형식 - 체크 해제시 B열
+    # 전체가 코멘트였음) 시트이므로 그 텍스트를 그대로 note로 본다.
+    function Parse-CheckRow($ws, [string]$bAddr, [string]$iAddr) {
+        $bText = [string]$ws.Range($bAddr).Value2
+        $iText = [string]$ws.Range($iAddr).Value2
+        $t = if ($bText) { $bText.Trim() } else { "" }
+        if ($t -match '이상\s*무\s*$') { return [PSCustomObject]@{ ok = $true; note = "" } }
+        if ($t -match '이상\s*유\s*$') { return [PSCustomObject]@{ ok = $false; note = if ($iText) { $iText.Trim() } else { "" } } }
+        return [PSCustomObject]@{ ok = ($t -eq ""); note = $t }
     }
 
-    $b17 = [string]$ws.Range("B17").Value2
-    $b18 = [string]$ws.Range("B18").Value2
+    $safety = Parse-CheckRow $ws "B17" "I17"
+    $hazmat = Parse-CheckRow $ws "B18" "I18"
+    $heat   = Parse-CheckRow $ws "B20" "I20"
+    $patrol = Parse-CheckRow $ws "B22" "I22"
+
     $b19 = [string]$ws.Range("B19").Value2
-    $b20 = [string]$ws.Range("B20").Value2
-    $b21 = [string]$ws.Range("B21").Value2
-
-    $safety = Parse-StandardCheck $b17 "일일 안전점검 결과 이상 무"
-    $hazmat = Parse-StandardCheck $b18 "위험물 저장소 점검 결과 이상 무"
-    $heat   = Parse-StandardCheck $b20 "온열질환 자율 점검 결과 이상 무"
-
     $slText = if ($b19) { $b19.Trim() } else { "" }
-    $slMatch = [regex]::Match($slText, '^S/L\s*\((\d+)대\)\s*점검 결과 이상 무$')
-    if ($slMatch.Success) {
+    $slMatch = [regex]::Match($slText, '^S/L\s*\((\d+)대\)\s*점검 결과 이상\s*(무|유)$')
+    if ($slMatch.Success -and $slMatch.Groups[2].Value -eq "무") {
         $sl = [PSCustomObject]@{ ok = $true; note = ""; count = [int]$slMatch.Groups[1].Value }
+    } elseif ($slMatch.Success) {
+        $i19 = [string]$ws.Range("I19").Value2
+        $sl = [PSCustomObject]@{ ok = $false; note = if ($i19) { $i19.Trim() } else { "" }; count = [int]$slMatch.Groups[1].Value }
     } else {
-        $sl = [PSCustomObject]@{ ok = $false; note = $slText; count = 5 }
+        $sl = [PSCustomObject]@{ ok = ($slText -eq ""); note = $slText; count = 5 }
     }
 
+    $b21 = [string]$ws.Range("B21").Value2
+    $i21 = [string]$ws.Range("I21").Value2
     $equipText = if ($b21) { $b21.Trim() } else { "" }
-    $equipMatch = [regex]::Match($equipText, '^장비\s*\((.+)\)\s*점검 결과 이상 무$')
+    $equipMatch = [regex]::Match($equipText, '^장비\s*\((.+)\)\s*점검 결과 이상\s*(무|유)$')
     $equipItems = @()
     $equipOk = $true
     $equipNote = ""
@@ -374,6 +390,8 @@ function Get-PrevDayInfo {
                 $equipItems += [PSCustomObject]@{ name = $pm.Groups[1].Value.Trim(); qty = [int]$pm.Groups[2].Value }
             }
         }
+        $equipOk = $equipMatch.Groups[2].Value -eq "무"
+        if (-not $equipOk) { $equipNote = if ($i21) { $i21.Trim() } else { "" } }
     } elseif ($equipText) {
         $equipOk = $false
         $equipNote = $equipText
@@ -406,6 +424,7 @@ function Get-PrevDayInfo {
             hazmat = $hazmat
             sl = $sl
             heat = $heat
+            patrol = $patrol
             equip = [PSCustomObject]@{ ok = $equipOk; note = $equipNote; items = $equipItems }
         }
         edu = [PSCustomObject]@{ daily = if ($eduDaily) { $eduDaily.Trim() } else { "" }; items = $eduItems }
@@ -477,42 +496,30 @@ function Invoke-Submit($payload) {
         $row++
     }
 
-    # 일일 위험성평가
+    # 일일 위험성평가 - B열에는 "{항목} 이상 무/유"를 항상 명시적으로 적고, I열("위험성평가에
+    # 관한 조치")에는 유(이상 있음)일 때 사용자가 입력한 조치/코멘트를 적는다.
+    # I16은 그 조치란의 표 header 칸이라 절대 덮어쓰지 않는다.
     $c = $payload.checks
+    Write-CheckRow $ws "B17" "I17" "일일 안전점검 결과" $c.safety
+    Write-CheckRow $ws "B18" "I18" "위험물 저장소 점검 결과" $c.hazmat
+    Write-CheckRow $ws "B19" "I19" "S/L ($([int]$c.sl.count)대) 점검 결과" $c.sl
+    Write-CheckRow $ws "B20" "I20" "온열질환 자율 점검 결과" $c.heat
+    Write-CheckRow $ws "B22" "I22" "작업장 순회점검 결과" $c.patrol
 
-    [string]$v17 = if ($c.safety.ok) { "일일 안전점검 결과 이상 무" } else { [string]$c.safety.note }
-    Set-CellValue $ws "B17" $v17
-
-    [string]$v18 = if ($c.hazmat.ok) { "위험물 저장소 점검 결과 이상 무" } else { [string]$c.hazmat.note }
-    Set-CellValue $ws "B18" $v18
-
-    [string]$v19 = if ($c.sl.ok) { "S/L ($([int]$c.sl.count)대) 점검 결과 이상 무" } else { [string]$c.sl.note }
-    Set-CellValue $ws "B19" $v19
-
-    [string]$v20 = if ($c.heat.ok) { "온열질환 자율 점검 결과 이상 무" } else { [string]$c.heat.note }
-    Set-CellValue $ws "B20" $v20
-
-    # 장비 여러 대는 사용자가 실제로 쓰던 형식대로 "(장비명 1대, 장비명 1대, ...)" 한 칸에 콤마로 묶는다.
-    # I21은 "장비 Checklist 확인" 문구 전용 칸으로, 장비가 실제로 있을 때만 채운다(없으면 비움).
-    # I16은 "위험성평가에 관한 조치" 표(header) 칸이라 절대 덮어쓰지 않는다.
-    if ($c.equip.ok) {
-        $equipItems = @($c.equip.items) | Where-Object { $_ -and $_.name }
-        if ($equipItems.Count -gt 0) {
-            $parts = $equipItems | ForEach-Object { "$($_.name) $([int]$_.qty)대" }
-            [string]$v21 = "장비 ($($parts -join ', ')) 점검 결과 이상 무"
-            Set-CellValue $ws "B21" $v21
-            Set-CellValue $ws "I21" "장비 Checklist 확인"
-        } else {
-            Set-CellValue $ws "B21" $null
-            Set-CellValue $ws "I21" $null
-        }
-        Set-CellValue $ws "S21" $null
+    # 장비는 여러 대를 사용자가 실제로 쓰던 형식대로 "(장비명 1대, 장비명 1대, ...)" 한 칸에
+    # 콤마로 묶어서 B21에 적고, 이상 무일 때는 I21에 "장비 Checklist 확인" 고정 문구를,
+    # 이상 유일 때는 사용자가 입력한 조치/코멘트를 적는다. 장비를 하나도 안 넣었으면 비워둔다.
+    $equipItems = @($c.equip.items) | Where-Object { $_ -and $_.name }
+    if ($equipItems.Count -gt 0) {
+        $parts = $equipItems | ForEach-Object { "$($_.name) $([int]$_.qty)대" }
+        $equipSuffix = if ($c.equip.ok) { "이상 무" } else { "이상 유" }
+        Set-CellValue $ws "B21" "장비 ($($parts -join ', ')) 점검 결과 $equipSuffix"
+        Set-CellValue $ws "I21" (if ($c.equip.ok) { "장비 Checklist 확인" } else { [string]$c.equip.note })
     } else {
-        [string]$v21b = $c.equip.note
-        Set-CellValue $ws "B21" $v21b
+        Set-CellValue $ws "B21" $null
         Set-CellValue $ws "I21" $null
-        Set-CellValue $ws "S21" $null
     }
+    Set-CellValue $ws "S21" $null
     Set-CellValue $ws "Z21" $null
 
     # 안전관계기록 - 공종별 안전지시사항은 엑셀 물리 슬롯이 6개(24~29행)뿐이라

@@ -75,9 +75,10 @@
   .check-item {
     border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; background: #fafbfc;
   }
-  .check-item .top { display: flex; align-items: center; gap: 8px; }
-  .check-item .top label { margin: 0; font-size: 13.5px; color: var(--text); flex: 1; cursor: pointer; }
-  .check-item input[type=checkbox] { width: 16px; height: 16px; }
+  .check-item .top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .check-item .top .item-label { margin: 0; font-size: 13.5px; color: var(--text); flex: 1; min-width: 160px; }
+  .check-item .top .yn { display: inline-flex; align-items: center; gap: 4px; margin: 0; font-size: 13px; color: var(--text); cursor: pointer; flex-shrink: 0; }
+  .check-item .top .yn input { width: 15px; height: 15px; margin: 0; }
   .check-item .extra { margin-top: 8px; display: none; }
   .check-item .extra.show { display: block; }
   .check-item .inline-num { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; }
@@ -202,44 +203,56 @@
 
   <div class="card">
     <h2>일일 위험성 평가</h2>
-    <div class="check-item">
+    <div class="check-item" data-key="safety">
       <div class="top">
-        <input type="checkbox" id="chk_safety" checked />
-        <label for="chk_safety">일일 안전점검 결과 이상 무</label>
+        <span class="item-label">일일 안전점검 결과</span>
+        <label class="yn"><input type="radio" name="yn_safety" value="무" checked /> 무</label>
+        <label class="yn"><input type="radio" name="yn_safety" value="유" /> 유</label>
       </div>
-      <div class="extra"><textarea id="note_safety" placeholder="이상 있을 경우 내용 입력"></textarea></div>
+      <div class="extra"><textarea id="note_safety" placeholder="이상 내용(조치사항) 입력"></textarea></div>
     </div>
-    <div class="check-item">
+    <div class="check-item" data-key="hazmat">
       <div class="top">
-        <input type="checkbox" id="chk_hazmat" checked />
-        <label for="chk_hazmat">위험물 저장소 점검 결과 이상 무</label>
+        <span class="item-label">위험물 저장소 점검 결과</span>
+        <label class="yn"><input type="radio" name="yn_hazmat" value="무" checked /> 무</label>
+        <label class="yn"><input type="radio" name="yn_hazmat" value="유" /> 유</label>
       </div>
-      <div class="extra"><textarea id="note_hazmat" placeholder="이상 있을 경우 내용 입력"></textarea></div>
+      <div class="extra"><textarea id="note_hazmat" placeholder="이상 내용(조치사항) 입력"></textarea></div>
     </div>
-    <div class="check-item">
+    <div class="check-item" data-key="sl">
       <div class="top">
-        <input type="checkbox" id="chk_sl" checked />
-        <label for="chk_sl">S/L 점검 결과 이상 무</label>
-        <span class="inline-num"><input type="number" id="sl_count" value="5" min="0" /> 대</span>
+        <span class="item-label">S/L 점검 결과 <span class="inline-num"><input type="number" id="sl_count" value="5" min="0" /> 대</span></span>
+        <label class="yn"><input type="radio" name="yn_sl" value="무" checked /> 무</label>
+        <label class="yn"><input type="radio" name="yn_sl" value="유" /> 유</label>
       </div>
-      <div class="extra"><textarea id="note_sl" placeholder="이상 있을 경우 내용 입력"></textarea></div>
+      <div class="extra"><textarea id="note_sl" placeholder="이상 내용(조치사항) 입력"></textarea></div>
     </div>
-    <div class="check-item">
+    <div class="check-item" data-key="heat">
       <div class="top">
-        <input type="checkbox" id="chk_heat" checked />
-        <label for="chk_heat">온열질환 자율 점검 결과 이상 무</label>
+        <span class="item-label">온열질환 자율 점검 결과</span>
+        <label class="yn"><input type="radio" name="yn_heat" value="무" checked /> 무</label>
+        <label class="yn"><input type="radio" name="yn_heat" value="유" /> 유</label>
       </div>
-      <div class="extra"><textarea id="note_heat" placeholder="이상 있을 경우 내용 입력"></textarea></div>
+      <div class="extra"><textarea id="note_heat" placeholder="이상 내용(조치사항) 입력"></textarea></div>
     </div>
-    <div class="check-item">
+    <div class="check-item" data-key="patrol">
       <div class="top">
-        <input type="checkbox" id="chk_equip" checked />
-        <label for="chk_equip">장비 점검 결과 이상 무</label>
+        <span class="item-label">작업장 순회점검 결과 <span style="color:var(--muted);font-weight:400;">(매주 화·목요일)</span></span>
+        <label class="yn"><input type="radio" name="yn_patrol" value="무" checked /> 무</label>
+        <label class="yn"><input type="radio" name="yn_patrol" value="유" /> 유</label>
+      </div>
+      <div class="extra"><textarea id="note_patrol" placeholder="이상 내용(조치사항) 입력"></textarea></div>
+    </div>
+    <div class="check-item" data-key="equip">
+      <div class="top">
+        <span class="item-label">장비 점검 결과</span>
+        <label class="yn"><input type="radio" name="yn_equip" value="무" checked /> 무</label>
+        <label class="yn"><input type="radio" name="yn_equip" value="유" /> 유</label>
       </div>
       <div id="equipSlots"></div>
       <button type="button" class="btn" id="addEquipSlot" style="margin-top:6px;">+ 장비 추가</button>
-      <div class="extra"><textarea id="note_equip" placeholder="이상 있을 경우 내용 입력"></textarea></div>
-      <div class="hint">장비를 입력하면 "장비 Checklist 확인" 문구가 자동으로 들어갑니다 (직접 입력하실 필요 없음).</div>
+      <div class="extra"><textarea id="note_equip" placeholder="이상 내용(조치사항) 입력"></textarea></div>
+      <div class="hint">장비를 입력하면 이상 무일 때 "장비 Checklist 확인" 문구가 자동으로 들어갑니다 (직접 입력하실 필요 없음).</div>
     </div>
   </div>
 
@@ -733,12 +746,17 @@ document.getElementById("suggestSafetyBtn").addEventListener("click", () => {
   document.getElementById("suggestSafetyStatus").textContent = "작업내용을 분석해 안전지시사항을 자동으로 채웠습니다. 현장 상황에 맞게 확인 후 필요하면 수정해주세요.";
 });
 
-// 체크박스 -> 비고 입력창 토글 (체크 해제 시 특이사항 입력란 노출)
-["safety","hazmat","sl","heat","equip"].forEach(key => {
-  const chk = document.getElementById("chk_" + key);
-  const extra = chk.closest(".check-item").querySelector(".extra");
-  const sync = () => extra.classList.toggle("show", !chk.checked);
-  chk.addEventListener("change", sync);
+// 일일 위험성평가 항목들의 유/무 상태 관리
+const YN_KEYS = ["safety", "hazmat", "sl", "heat", "patrol", "equip"];
+function isYnOk(key) {
+  const el = document.querySelector(`input[name="yn_${key}"]:checked`);
+  return !el || el.value === "무";
+}
+// 유/무 토글 -> 코멘트(조치사항) 입력창 노출 (유일 때만 보임)
+YN_KEYS.forEach(key => {
+  const extra = document.querySelector(`.check-item[data-key="${key}"] .extra`);
+  const sync = () => extra.classList.toggle("show", !isYnOk(key));
+  document.querySelectorAll(`input[name="yn_${key}"]`).forEach(r => r.addEventListener("change", sync));
   sync();
 });
 
@@ -883,11 +901,12 @@ function buildPayload() {
     prevAccidentFreeHours: Number(document.getElementById("prevAccidentFreeHours").value || 0),
     trades: trades,
     checks: {
-      safety:  { ok: document.getElementById("chk_safety").checked, note: document.getElementById("note_safety").value },
-      hazmat:  { ok: document.getElementById("chk_hazmat").checked, note: document.getElementById("note_hazmat").value },
-      sl:      { ok: document.getElementById("chk_sl").checked, note: document.getElementById("note_sl").value, count: Number(document.getElementById("sl_count").value || 0) },
-      heat:    { ok: document.getElementById("chk_heat").checked, note: document.getElementById("note_heat").value },
-      equip:   { ok: document.getElementById("chk_equip").checked, note: document.getElementById("note_equip").value,
+      safety:  { ok: isYnOk("safety"), note: document.getElementById("note_safety").value },
+      hazmat:  { ok: isYnOk("hazmat"), note: document.getElementById("note_hazmat").value },
+      sl:      { ok: isYnOk("sl"), note: document.getElementById("note_sl").value, count: Number(document.getElementById("sl_count").value || 0) },
+      heat:    { ok: isYnOk("heat"), note: document.getElementById("note_heat").value },
+      patrol:  { ok: isYnOk("patrol"), note: document.getElementById("note_patrol").value },
+      equip:   { ok: isYnOk("equip"), note: document.getElementById("note_equip").value,
                  items: getEquipEntries() }
     },
     edu: {
@@ -978,6 +997,7 @@ function buildPreviewHtml(payload) {
         ${checkLine("위험물 저장소", c.hazmat)}
         <li><b>S/L</b>: ${c.sl.ok ? `${c.sl.count}대 이상 무` : (escapeHtml(c.sl.note) || "(특이사항 미입력)")}</li>
         ${checkLine("온열질환", c.heat)}
+        ${checkLine("작업장 순회점검", c.patrol)}
         <li><b>장비 점검</b>: ${equipLine}</li>
       </ul>
     </div>
@@ -1020,26 +1040,30 @@ function applyPrevDayData(data) {
   document.getElementById("excludePm").value = data.excludePm != null ? data.excludePm : 0;
 
   const c = data.checks || {};
-  ["safety", "hazmat", "heat"].forEach(key => {
+  function setYn(key, ok) {
+    const radio = document.querySelector(`input[name="yn_${key}"][value="${ok ? '무' : '유'}"]`);
+    if (radio) radio.checked = true;
+  }
+  ["safety", "hazmat", "heat", "patrol"].forEach(key => {
     if (!c[key]) return;
-    document.getElementById("chk_" + key).checked = !!c[key].ok;
+    setYn(key, !!c[key].ok);
     document.getElementById("note_" + key).value = c[key].note || "";
   });
   if (c.sl) {
-    document.getElementById("chk_sl").checked = !!c.sl.ok;
+    setYn("sl", !!c.sl.ok);
     document.getElementById("note_sl").value = c.sl.note || "";
     document.getElementById("sl_count").value = c.sl.count || 5;
   }
   if (c.equip) {
-    document.getElementById("chk_equip").checked = !!c.equip.ok;
+    setYn("equip", !!c.equip.ok);
     document.getElementById("note_equip").value = c.equip.note || "";
     equipSlotsEl.innerHTML = "";
     const items = (c.equip.items && c.equip.items.length) ? c.equip.items : [{ name: "", qty: 1 }, { name: "", qty: 1 }];
     items.forEach(it => addEquipSlot(it.name, it.qty));
     syncAddEquipButton();
   }
-  ["safety", "hazmat", "sl", "heat", "equip"].forEach(key => {
-    document.getElementById("chk_" + key).dispatchEvent(new Event("change"));
+  YN_KEYS.forEach(key => {
+    document.querySelectorAll(`input[name="yn_${key}"]`).forEach(r => r.dispatchEvent(new Event("change")));
   });
 
   document.getElementById("edu_daily").value = (data.edu && data.edu.daily) || "";
