@@ -314,12 +314,18 @@
 </div>
 
 <script>
-const DEFAULT_TRADES = ["직  원", "직  영", "전기/ESS", "기계설비/가스", "수  장", "도  장", "토  목", "펜  스"];
+const DEFAULT_TRADES = ["직  원 / 직  영", "전기/ESS", "기계설비/FCU", "수  장", "도  장", "토  목", "펜  스"];
 const tradeRowsEl = document.getElementById("tradeRows");
+
+// 공종 행마다 고유 id를 붙여서, 이름이 바뀌어도(예: 공종명 수정) 안전관계기록 쪽에서
+// 어떤 행과 짝인지 이름이 아니라 이 id로 추적할 수 있게 한다 (이름으로만 추적하면
+// 이름을 바꾸는 순간 그 행에 이미 입력해둔 안전관계기록 코멘트를 잃어버리게 됨).
+let tradeRowIdSeq = 0;
 
 function addTradeRow(name, count, work) {
   const div = document.createElement("div");
   div.className = "trade-row";
+  div.dataset.tradeId = "t" + (tradeRowIdSeq++);
   // 공종명/작업내용 값은 HTML 문자열에 직접 끼워넣지 않고(따옴표·꺾쇠 등이 들어있으면
   // 태그 구조가 깨질 수 있음) 요소를 만든 뒤 .value 속성으로 안전하게 채운다.
   div.innerHTML = `
@@ -337,7 +343,7 @@ function addTradeRow(name, count, work) {
 }
 
 const MAX_TRADE_ROWS = 8;
-const DEFAULT_TRADE_COUNTS = { "직  원": 13 }; // 직원은 별도 입력 없어도 기본 13명으로 채워둠 (필요시 직접 수정)
+const DEFAULT_TRADE_COUNTS = { "직  원 / 직  영": 13 }; // 직원+직영 합산 기본 인원 (필요시 직접 수정)
 DEFAULT_TRADES.forEach(t => addTradeRow(t, DEFAULT_TRADE_COUNTS[t] || 0, ""));
 function syncAddButton() {
   document.getElementById("addTradeRow").disabled = tradeRowsEl.children.length >= MAX_TRADE_ROWS;
@@ -388,10 +394,9 @@ function getEquipEntries() {
 // ---------- 카톡 붙여넣기 파서 ----------
 // 공종 라벨(폼에 실제 표시되는 이름) - 최소 하나의 트리거 키워드로 매칭
 const TRADE_DEFS = [
-  { key: "직원",    label: "직  원",       keywords: ["직원"] },
-  { key: "직영",    label: "직  영",         keywords: ["직영"] },
+  { key: "직원직영", label: "직  원 / 직  영", keywords: ["직원", "직영"] },
   { key: "전기ess", label: "전기/ESS",     keywords: ["전기", "ess"] },
-  { key: "기계설비", label: "기계설비/가스", keywords: ["fcu", "기계", "설비", "공조", "덕트", "eng"] },
+  { key: "기계설비", label: "기계설비/FCU", keywords: ["fcu", "기계", "설비", "공조", "덕트", "eng"] },
   { key: "수장",    label: "수  장",       keywords: ["내장", "수장"] },
   { key: "도장",    label: "도  장",       keywords: ["도장"] },
   { key: "토목",    label: "토  목",       keywords: ["토목"] },
@@ -417,7 +422,10 @@ function cleanTitleForNewTrade(title) {
 
 // ---------- 안전관계기록: 공종 목록(직원/직영 제외)과 동적으로 동기화 ----------
 const RULE_KEY_MAP = { "전기ess": "elec", "기계설비": "mech", "수장": "interior", "도장": "paint", "토목": "civil", "펜스": "fence" };
-const EDU_EXCLUDE = ["직원", "직영"];
+// "직원/직영"은 예전엔 별도 두 행이었지만 지금은 "직  원 / 직  영" 한 행으로 합쳐졌다.
+// 예전 시트를 "전일 내용 불러오기"로 불러왔을 때 옛 이름(직원 단독/직영 단독)도 계속
+// 제외되도록 셋 다 넣어둔다.
+const EDU_EXCLUDE = ["직원", "직영", "직원/직영"];
 const MAX_EDU_ROWS = 6;
 
 function getRuleKeyForTradeName(name) {
@@ -429,27 +437,30 @@ function getRuleKeyForTradeName(name) {
 function syncEduRows() {
   const eduRowsEl = document.getElementById("eduRows");
   if (!eduRowsEl) return;
-  const tradeNames = Array.from(tradeRowsEl.querySelectorAll(".trade-row"))
-    .map(r => r.querySelector(".t-name").value.trim())
-    .filter(n => n && !EDU_EXCLUDE.includes(n.replace(/\s+/g, "")));
+  // 이름이 아니라 공종 행의 고유 id로 기존 코멘트를 찾아온다 - 그래야 공종명을
+  // 수정했을 때(예: 오타 수정, 팀 이름 변경) 이미 입력해둔 안전관계기록 코멘트가
+  // 사라지지 않고 새 이름 아래로 그대로 이어진다.
+  const tradeEntries = Array.from(tradeRowsEl.querySelectorAll(".trade-row"))
+    .map(r => ({ id: r.dataset.tradeId, name: r.querySelector(".t-name").value.trim() }))
+    .filter(t => t.name && !EDU_EXCLUDE.includes(t.name.replace(/\s+/g, "")));
 
-  const targetNames = tradeNames.slice(0, MAX_EDU_ROWS);
-  const overflowCount = tradeNames.length - targetNames.length;
+  const targetEntries = tradeEntries.slice(0, MAX_EDU_ROWS);
+  const overflowCount = tradeEntries.length - targetEntries.length;
 
   const existing = {};
-  eduRowsEl.querySelectorAll(".edu-slot").forEach(el => { existing[el.dataset.trade] = el; });
+  eduRowsEl.querySelectorAll(".edu-slot").forEach(el => { existing[el.dataset.tradeId] = el; });
 
   eduRowsEl.innerHTML = "";
-  targetNames.forEach(name => {
-    const el = existing[name] || (() => {
+  targetEntries.forEach(entry => {
+    const el = existing[entry.id] || (() => {
       const d = document.createElement("div");
       d.className = "edu-slot";
-      d.dataset.trade = name;
       d.innerHTML = `<label></label><textarea class="edu-text" placeholder="금일 작업 X"></textarea>`;
       return d;
     })();
-    el.dataset.trade = name;
-    el.querySelector("label").textContent = name;
+    el.dataset.tradeId = entry.id;
+    el.dataset.trade = entry.name;
+    el.querySelector("label").textContent = entry.name;
     eduRowsEl.appendChild(el);
   });
 
@@ -656,12 +667,13 @@ document.getElementById("parseKakaoBtn").addEventListener("click", () => {
 const SAFETY_RULES = {
   elec: [
     { kws: ["배관", "결선", "전등", "전열", "배선", "소방", "cctv", "통신", "직압", "분전반", "차단기", "케이블", "인입", "판넬"], msg: "감전 방지를 위해 작업 전 차단기 차단·검전 확인, 절연장갑 등 절연용 보호구 착용" },
-    { kws: ["고소", "천장", "사다리"], msg: "고소작업대·사다리 전도 주의, 작업높이 2m 이상 시 안전모 및 안전대 착용" },
+    { kws: ["고소", "천장", "사다리"], msg: "사다리 사용 시 2인 1조 작업 및 아웃트리거 설치, S/L 사용 시 안전대 체결, 작업높이 2m 이상 시 안전모 및 안전대 착용" },
     { kws: ["ess", "배터리", "축전지"], msg: "과충전·누전으로 인한 화재 주의, 전기화재용 소화기 비치 확인" }
   ],
   mech: [
     { kws: ["용접", "절단", "그라인더"], msg: "화재감시자 배치 및 소화기 비치, 작업반경 11m 이내 가연물 제거 또는 방염포 설치" },
     { kws: ["시운전"], msg: "시운전 중 회전체·고온부 접촉 주의, 정비 전 전원 차단(LOTO) 확인" },
+    { kws: ["사다리", "고소"], msg: "작업 구역 조도 확보, 사다리 사용 시 2인 1조 작업 및 아웃트리거 설치" },
     { kws: ["배관", "덕트", "기구", "설치", "인양"], msg: "중량물 취급시 협착 주의 및 2인 1조 작업" },
     { kws: ["가스", "냉매", "압력", "밸브"], msg: "가스 누출 및 압력 방출 주의, 작업 전 밸브·압력계 확인 및 환기" }
   ],
