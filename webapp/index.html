@@ -79,8 +79,14 @@
   .check-item .top .item-label { margin: 0; font-size: 13.5px; color: var(--text); flex: 1; min-width: 160px; }
   .check-item .top .yn { display: inline-flex; align-items: center; gap: 4px; margin: 0; font-size: 13px; color: var(--text); cursor: pointer; flex-shrink: 0; }
   .check-item .top .yn input { width: 15px; height: 15px; margin: 0; }
+  .check-item .top .del-check {
+    flex-shrink: 0; background: none; border: none; color: var(--danger);
+    cursor: pointer; font-size: 12.5px; padding: 4px 2px; margin-left: 4px;
+  }
+  .check-item.removed { display: none; }
   .check-item .extra { margin-top: 8px; display: none; }
   .check-item .extra.show { display: block; }
+  #removedChecksHint a { color: var(--accent); cursor: pointer; }
   .check-item .inline-num { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; }
   .check-item .inline-num input { width: 55px; display: inline-block; }
   .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
@@ -208,6 +214,7 @@
         <span class="item-label">일일 안전점검 결과</span>
         <label class="yn"><input type="radio" name="yn_safety" value="무" checked /> 무</label>
         <label class="yn"><input type="radio" name="yn_safety" value="유" /> 유</label>
+        <button type="button" class="del-check" title="이 항목 삭제">삭제</button>
       </div>
       <div class="extra"><textarea id="note_safety" placeholder="이상 내용(조치사항) 입력"></textarea></div>
     </div>
@@ -216,6 +223,7 @@
         <span class="item-label">위험물 저장소 점검 결과</span>
         <label class="yn"><input type="radio" name="yn_hazmat" value="무" checked /> 무</label>
         <label class="yn"><input type="radio" name="yn_hazmat" value="유" /> 유</label>
+        <button type="button" class="del-check" title="이 항목 삭제">삭제</button>
       </div>
       <div class="extra"><textarea id="note_hazmat" placeholder="이상 내용(조치사항) 입력"></textarea></div>
     </div>
@@ -224,6 +232,7 @@
         <span class="item-label">S/L 점검 결과 <span class="inline-num"><input type="number" id="sl_count" value="5" min="0" /> 대</span></span>
         <label class="yn"><input type="radio" name="yn_sl" value="무" checked /> 무</label>
         <label class="yn"><input type="radio" name="yn_sl" value="유" /> 유</label>
+        <button type="button" class="del-check" title="이 항목 삭제">삭제</button>
       </div>
       <div class="extra"><textarea id="note_sl" placeholder="이상 내용(조치사항) 입력"></textarea></div>
     </div>
@@ -232,6 +241,7 @@
         <span class="item-label">온열질환 자율 점검 결과</span>
         <label class="yn"><input type="radio" name="yn_heat" value="무" checked /> 무</label>
         <label class="yn"><input type="radio" name="yn_heat" value="유" /> 유</label>
+        <button type="button" class="del-check" title="이 항목 삭제">삭제</button>
       </div>
       <div class="extra"><textarea id="note_heat" placeholder="이상 내용(조치사항) 입력"></textarea></div>
     </div>
@@ -240,6 +250,7 @@
         <span class="item-label">작업장 순회점검 결과 <span style="color:var(--muted);font-weight:400;">(매주 화·목요일)</span></span>
         <label class="yn"><input type="radio" name="yn_patrol" value="무" checked /> 무</label>
         <label class="yn"><input type="radio" name="yn_patrol" value="유" /> 유</label>
+        <button type="button" class="del-check" title="이 항목 삭제">삭제</button>
       </div>
       <div class="extra"><textarea id="note_patrol" placeholder="이상 내용(조치사항) 입력"></textarea></div>
     </div>
@@ -248,12 +259,14 @@
         <span class="item-label">장비 점검 결과</span>
         <label class="yn"><input type="radio" name="yn_equip" value="무" checked /> 무</label>
         <label class="yn"><input type="radio" name="yn_equip" value="유" /> 유</label>
+        <button type="button" class="del-check" title="이 항목 삭제">삭제</button>
       </div>
       <div id="equipSlots"></div>
       <button type="button" class="btn" id="addEquipSlot" style="margin-top:6px;">+ 장비 추가</button>
       <div class="extra"><textarea id="note_equip" placeholder="이상 내용(조치사항) 입력"></textarea></div>
       <div class="hint">장비를 입력하면 이상 무일 때 "장비 Checklist 확인" 문구가 자동으로 들어갑니다 (직접 입력하실 필요 없음).</div>
     </div>
+    <div id="removedChecksHint" class="hint" style="display:none;"></div>
   </div>
 
   <div class="card">
@@ -343,7 +356,8 @@ function addTradeRow(name, count, work) {
 }
 
 const MAX_TRADE_ROWS = 8;
-const DEFAULT_TRADE_COUNTS = { "직  원 / 직  영": 13 }; // 직원+직영 합산 기본 인원 (필요시 직접 수정)
+const STAFF_FIXED_COUNT = 13; // 직원 고정 인원 (직영 인원에 항상 더해서 넣음)
+const DEFAULT_TRADE_COUNTS = { "직  원 / 직  영": STAFF_FIXED_COUNT }; // 직원+직영 합산 기본 인원 (필요시 직접 수정)
 DEFAULT_TRADES.forEach(t => addTradeRow(t, DEFAULT_TRADE_COUNTS[t] || 0, ""));
 function syncAddButton() {
   document.getElementById("addTradeRow").disabled = tradeRowsEl.children.length >= MAX_TRADE_ROWS;
@@ -621,7 +635,11 @@ function applyParsedTrades(parsed) {
       }
     }
     if (!row) return;
-    row.querySelector(".t-count").value = p.count;
+    // 직원 13명은 카톡 메시지로 매번 확인 안 해도 항상 고정으로 들어가는 인원이라,
+    // 직영 쪽에서 파싱된 인원수에 자동으로 더해서 넣는다 (직영분만 반영하면 직원 13명이
+    // 누락되므로).
+    const isStaffCombined = p.label.replace(/\s+/g, "") === "직원/직영";
+    row.querySelector(".t-count").value = isStaffCombined ? p.count + STAFF_FIXED_COUNT : p.count;
     row.querySelector(".t-work").value = p.work;
     filled++;
   });
@@ -674,6 +692,7 @@ const SAFETY_RULES = {
     { kws: ["용접", "절단", "그라인더"], msg: "화재감시자 배치 및 소화기 비치, 작업반경 11m 이내 가연물 제거 또는 방염포 설치" },
     { kws: ["시운전"], msg: "시운전 중 회전체·고온부 접촉 주의, 정비 전 전원 차단(LOTO) 확인" },
     { kws: ["사다리", "고소"], msg: "작업 구역 조도 확보, 사다리 사용 시 2인 1조 작업 및 아웃트리거 설치" },
+    { kws: ["양변기", "협소", "좁은"], msg: "협소한 공간 작업 시 머리·신체 충돌 주의 및 작업 구역 조도 확보" },
     { kws: ["배관", "덕트", "기구", "설치", "인양"], msg: "중량물 취급시 협착 주의 및 2인 1조 작업" },
     { kws: ["가스", "냉매", "압력", "밸브"], msg: "가스 누출 및 압력 방출 주의, 작업 전 밸브·압력계 확인 및 환기" }
   ],
@@ -771,6 +790,39 @@ YN_KEYS.forEach(key => {
   document.querySelectorAll(`input[name="yn_${key}"]`).forEach(r => r.addEventListener("change", sync));
   sync();
 });
+
+// 항목별 삭제/복원 - 그 날 해당 없는 항목은 통째로 빼고 제출할 수 있게 함
+// (삭제해도 값은 그대로 남아있어서, 실수로 삭제해도 복원하면 원래대로 돌아옴)
+const CHECK_LABELS = {
+  safety: "일일 안전점검", hazmat: "위험물 저장소 점검", sl: "S/L 점검",
+  heat: "온열질환 자율 점검", patrol: "작업장 순회점검", equip: "장비 점검"
+};
+function updateRemovedChecksHint() {
+  const hintEl = document.getElementById("removedChecksHint");
+  const removed = YN_KEYS.filter(k => document.querySelector(`.check-item[data-key="${k}"]`).classList.contains("removed"));
+  if (removed.length === 0) { hintEl.style.display = "none"; hintEl.innerHTML = ""; return; }
+  hintEl.style.display = "block";
+  hintEl.innerHTML = "삭제된 항목: " + removed.map(k => `<a data-key="${k}">${CHECK_LABELS[k]} 복원</a>`).join(" · ");
+  hintEl.querySelectorAll("a").forEach(a => {
+    a.addEventListener("click", () => {
+      document.querySelector(`.check-item[data-key="${a.dataset.key}"]`).classList.remove("removed");
+      updateRemovedChecksHint();
+    });
+  });
+}
+YN_KEYS.forEach(key => {
+  document.querySelector(`.check-item[data-key="${key}"] .del-check`).addEventListener("click", () => {
+    document.querySelector(`.check-item[data-key="${key}"]`).classList.add("removed");
+    updateRemovedChecksHint();
+  });
+});
+
+// 삭제되지 않은 항목만 payload에 포함시킨다 (삭제된 항목은 null -> 서버에서 해당 셀을 비워둠)
+function getCheckPayload(key, extra) {
+  const item = document.querySelector(`.check-item[data-key="${key}"]`);
+  if (item.classList.contains("removed")) return null;
+  return Object.assign({ ok: isYnOk(key), note: document.getElementById("note_" + key).value }, extra || {});
+}
 
 // 오늘 날짜 표시
 const today = new Date();
@@ -913,13 +965,12 @@ function buildPayload() {
     prevAccidentFreeHours: Number(document.getElementById("prevAccidentFreeHours").value || 0),
     trades: trades,
     checks: {
-      safety:  { ok: isYnOk("safety"), note: document.getElementById("note_safety").value },
-      hazmat:  { ok: isYnOk("hazmat"), note: document.getElementById("note_hazmat").value },
-      sl:      { ok: isYnOk("sl"), note: document.getElementById("note_sl").value, count: Number(document.getElementById("sl_count").value || 0) },
-      heat:    { ok: isYnOk("heat"), note: document.getElementById("note_heat").value },
-      patrol:  { ok: isYnOk("patrol"), note: document.getElementById("note_patrol").value },
-      equip:   { ok: isYnOk("equip"), note: document.getElementById("note_equip").value,
-                 items: getEquipEntries() }
+      safety:  getCheckPayload("safety"),
+      hazmat:  getCheckPayload("hazmat"),
+      sl:      getCheckPayload("sl", { count: Number(document.getElementById("sl_count").value || 0) }),
+      heat:    getCheckPayload("heat"),
+      patrol:  getCheckPayload("patrol"),
+      equip:   getCheckPayload("equip", { items: getEquipEntries() })
     },
     edu: {
       daily: document.getElementById("edu_daily").value,
@@ -981,10 +1032,13 @@ function buildPreviewHtml(payload) {
     : `<tr><td colspan="3">입력된 공종 없음</td></tr>`;
 
   const c = payload.checks;
-  const checkLine = (label, chk) => `<li><b>${label}</b>: ${chk.ok ? "이상 무" : (escapeHtml(chk.note) || "(특이사항 미입력)")}</li>`;
-  const equipLine = c.equip.ok
+  const checkLine = (label, chk) => {
+    const value = !chk ? "(항목 삭제됨)" : (chk.ok ? "이상 무" : (escapeHtml(chk.note) || "(특이사항 미입력)"));
+    return `<li><b>${label}</b>: ${value}</li>`;
+  };
+  const equipLine = !c.equip ? "(항목 삭제됨)" : (c.equip.ok
     ? (c.equip.items.length ? escapeHtml(c.equip.items.map(i => `${i.name} ${i.qty}대`).join(", ")) + " - 이상 무" : "장비 없음")
-    : (escapeHtml(c.equip.note) || "(특이사항 미입력)");
+    : (escapeHtml(c.equip.note) || "(특이사항 미입력)"));
 
   const eduFilled = payload.edu.items.filter(i => i.text.trim());
   const eduItemsHtml = eduFilled.length
@@ -1007,7 +1061,7 @@ function buildPreviewHtml(payload) {
       <ul>
         ${checkLine("일일 안전점검", c.safety)}
         ${checkLine("위험물 저장소", c.hazmat)}
-        <li><b>S/L</b>: ${c.sl.ok ? `${c.sl.count}대 이상 무` : (escapeHtml(c.sl.note) || "(특이사항 미입력)")}</li>
+        <li><b>S/L</b>: ${!c.sl ? "(항목 삭제됨)" : (c.sl.ok ? `${c.sl.count}대 이상 무` : (escapeHtml(c.sl.note) || "(특이사항 미입력)"))}</li>
         ${checkLine("온열질환", c.heat)}
         ${checkLine("작업장 순회점검", c.patrol)}
         <li><b>장비 점검</b>: ${equipLine}</li>

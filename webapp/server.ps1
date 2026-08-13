@@ -207,9 +207,19 @@ function Set-CellValue($ws, [string]$addr, $value) {
 # B열에는 "{라벨} 이상 무" / "{라벨} 이상 유"를 항상 명시적으로 적고, I열("위험성평가에
 # 관한 조치")에는 유(이상 있음)일 때만 사용자가 입력한 조치/코멘트를 적는다.
 function Write-CheckRow($ws, [string]$bAddr, [string]$iAddr, [string]$label, $chk) {
+    # 사용자가 폼에서 이 항목을 삭제했으면 $chk가 null로 온다 - 그 날은 해당 없는
+    # 항목이라는 뜻이므로 칸을 그냥 비워둔다.
+    if ($null -eq $chk) {
+        Set-CellValue $ws $bAddr $null
+        Set-CellValue $ws $iAddr $null
+        return
+    }
     $suffix = if ($chk.ok) { "이상 무" } else { "이상 유" }
     Set-CellValue $ws $bAddr "$label $suffix"
-    Set-CellValue $ws $iAddr (if ($chk.ok) { $null } else { [string]$chk.note })
+    # PowerShell 5.1에서는 "if(){}else{}" 를 함수 인자 자리에 괄호로 바로 못 넣는다
+    # ("'if' 용어가 cmdlet으로 인식되지 않습니다" 오류) - 변수에 먼저 대입해서 넘긴다.
+    $comment = if ($chk.ok) { $null } else { [string]$chk.note }
+    Set-CellValue $ws $iAddr $comment
 }
 
 # 사진대지 3칸 위치/크기 (B32:G37, H32:L37, M32:R37 병합 셀의 실제 좌표, 단위: 포인트)
@@ -509,12 +519,17 @@ function Invoke-Submit($payload) {
     # 장비는 여러 대를 사용자가 실제로 쓰던 형식대로 "(장비명 1대, 장비명 1대, ...)" 한 칸에
     # 콤마로 묶어서 B21에 적고, 이상 무일 때는 I21에 "장비 Checklist 확인" 고정 문구를,
     # 이상 유일 때는 사용자가 입력한 조치/코멘트를 적는다. 장비를 하나도 안 넣었으면 비워둔다.
-    $equipItems = @($c.equip.items) | Where-Object { $_ -and $_.name }
+    # 주의: "@(...) | Where-Object" 처럼 파이프라인 바깥에 @()를 두면, 필터링 결과가
+    # 정확히 1개일 때 PowerShell이 배열이 아니라 단일 객체로 풀어버려서 .Count가 $null이
+    # 되고, 그 뒤 "-gt 0" 비교가 조용히 실패해 장비를 1대만 넣었을 때 통째로 빠지는 문제가
+    # 있었다. 파이프라인 전체를 @()로 감싸야 결과 개수와 상관없이 항상 배열로 유지된다.
+    $equipItems = @($c.equip.items | Where-Object { $_ -and $_.name })
     if ($equipItems.Count -gt 0) {
         $parts = $equipItems | ForEach-Object { "$($_.name) $([int]$_.qty)대" }
         $equipSuffix = if ($c.equip.ok) { "이상 무" } else { "이상 유" }
         Set-CellValue $ws "B21" "장비 ($($parts -join ', ')) 점검 결과 $equipSuffix"
-        Set-CellValue $ws "I21" (if ($c.equip.ok) { "장비 Checklist 확인" } else { [string]$c.equip.note })
+        $i21Value = if ($c.equip.ok) { "장비 Checklist 확인" } else { [string]$c.equip.note }
+        Set-CellValue $ws "I21" $i21Value
     } else {
         Set-CellValue $ws "B21" $null
         Set-CellValue $ws "I21" $null
@@ -525,7 +540,9 @@ function Invoke-Submit($payload) {
     # 안전관계기록 - 공종별 안전지시사항은 엑셀 물리 슬롯이 6개(24~29행)뿐이라
     # 폼에서 온 개수만큼(최대 6개) 라벨(B열)과 내용(C열)을 함께 채우고, 남는 칸은 비운다.
     Set-CellValue $ws "C23" ([string]$payload.edu.daily)
-    $eduItems = @($payload.edu.items) | Where-Object { $_ -and $_.trade }
+    # (위 장비 항목과 같은 이유로) 파이프라인 전체를 @()로 감싸서 안전관계기록이
+    # 정확히 1개일 때도 배열로 유지되게 한다.
+    $eduItems = @($payload.edu.items | Where-Object { $_ -and $_.trade })
     $eduRowNumbers = 24..29
     for ($i = 0; $i -lt $eduRowNumbers.Count; $i++) {
         $row = $eduRowNumbers[$i]
