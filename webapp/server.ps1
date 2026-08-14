@@ -245,36 +245,50 @@ function Set-SheetPhotos($ws, $photos) {
         $bytes = [System.Convert]::FromBase64String($base64)
         $tempFile = [System.IO.Path]::Combine($env:TEMP, "safety_photo_$([guid]::NewGuid().ToString('N')).jpg")
         [System.IO.File]::WriteAllBytes($tempFile, $bytes)
+        $croppedTempFile = $null
         try {
             $slot = $script:PhotoSlots[$i]
 
-            # 박스에 Width/Height를 그대로 지정하면 사진이 늘어나거나 찌그러져 보이므로,
-            # 원본 픽셀 크기를 먼저 읽어서 비율을 유지한 채(contain) 박스 중앙에 들어갈
-            # 최종 크기/위치를 계산한 뒤 한 번에 그 크기로 삽입한다.
+            # 박스를 빈틈없이 꽉 채우도록, Excel Shape의 Crop 기능 대신(그 방식은 실제
+            # 테스트해보니 삽입 크기에 따라 잘리는 양이 예측과 달라져 박스에 정확히
+            # 안 맞았음) 사진 파일 자체를 박스 비율에 맞게 미리 잘라낸 뒤, 그 잘라낸
+            # 사진을 박스 크기 그대로 삽입한다. 비율이 이미 같으므로 늘어나거나
+            # 찌그러지지 않는다.
             Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
-            $img = [System.Drawing.Image]::FromFile($tempFile)
-            $pxW = $img.Width
-            $pxH = $img.Height
-            $img.Dispose()
-            $nativeW = $pxW * 0.75   # 96 DPI 기준 픽셀 -> 포인트 변환
-            $nativeH = $pxH * 0.75
-            $finalW = $slot.Width
-            $finalH = $slot.Height
-            $finalLeft = $slot.Left
-            $finalTop = $slot.Top
-            if ($nativeW -gt 0 -and $nativeH -gt 0) {
-                $scale = [Math]::Min($slot.Width / $nativeW, $slot.Height / $nativeH)
-                $finalW = $nativeW * $scale
-                $finalH = $nativeH * $scale
-                $finalLeft = $slot.Left + ($slot.Width - $finalW) / 2
-                $finalTop = $slot.Top + ($slot.Height - $finalH) / 2
+            $srcImg = [System.Drawing.Image]::FromFile($tempFile)
+            $pxW = $srcImg.Width
+            $pxH = $srcImg.Height
+            $targetRatio = $slot.Width / $slot.Height
+            $srcRatio = $pxW / $pxH
+
+            if ($srcRatio -gt $targetRatio) {
+                # 원본이 박스보다 가로로 더 넓다 -> 좌우를 잘라낸다
+                $cropW = [int]([Math]::Round($pxH * $targetRatio))
+                $cropH = $pxH
+                $cropXPx = [int](($pxW - $cropW) / 2)
+                $cropYPx = 0
+            } else {
+                # 원본이 박스보다 세로로 더 길다 -> 위아래를 잘라낸다
+                $cropW = $pxW
+                $cropH = [int]([Math]::Round($pxW / $targetRatio))
+                $cropXPx = 0
+                $cropYPx = [int](($pxH - $cropH) / 2)
             }
+
+            $croppedTempFile = [System.IO.Path]::Combine($env:TEMP, "safety_photo_crop_$([guid]::NewGuid().ToString('N')).jpg")
+            $destBmp = New-Object System.Drawing.Bitmap $cropW, $cropH
+            $g = [System.Drawing.Graphics]::FromImage($destBmp)
+            $g.DrawImage($srcImg, (New-Object System.Drawing.Rectangle 0, 0, $cropW, $cropH), (New-Object System.Drawing.Rectangle $cropXPx, $cropYPx, $cropW, $cropH), [System.Drawing.GraphicsUnit]::Pixel)
+            $g.Dispose()
+            $destBmp.Save($croppedTempFile, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+            $destBmp.Dispose()
+            $srcImg.Dispose()
 
             $lastErr = $null
             $done = $false
             for ($attempt = 1; $attempt -le 3 -and -not $done; $attempt++) {
                 try {
-                    $shape = $ws.Shapes.AddPicture($tempFile, $false, $true, [single]$finalLeft, [single]$finalTop, [single]$finalW, [single]$finalH)
+                    $shape = $ws.Shapes.AddPicture($croppedTempFile, $false, $true, [single]$slot.Left, [single]$slot.Top, [single]$slot.Width, [single]$slot.Height)
                     $shape.Name = $shapeName
                     $done = $true
                 } catch {
@@ -284,6 +298,7 @@ function Set-SheetPhotos($ws, $photos) {
             }
             if (-not $done) { throw "사진 $($i + 1) 삽입 실패: $($lastErr.Exception.Message)" }
         } finally {
+            if ($croppedTempFile) { Remove-Item $croppedTempFile -Force -ErrorAction SilentlyContinue }
             Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
         }
     }
