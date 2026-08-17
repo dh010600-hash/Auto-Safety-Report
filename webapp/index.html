@@ -290,7 +290,11 @@
       <div><label>금일 진행사항 (특이사항)</label><textarea id="progressToday" placeholder="예: 특이사항 X"></textarea></div>
     </div>
     <div class="row">
-      <div><label>금주 및 내주 예정사항</label><textarea id="progressPlan" placeholder="예: 3일 Wall and Door Protection I.I, 5일 안전 점검의 날"></textarea></div>
+      <div>
+        <label>금주 및 내주 예정사항</label>
+        <textarea id="progressPlan" placeholder="예: 3일 Wall and Door Protection I.I, 5일 안전 점검의 날"></textarea>
+        <div id="progressPlanStatus" class="hint"></div>
+      </div>
     </div>
   </div>
 
@@ -865,6 +869,25 @@ async function loadContext() {
   }
 }
 loadContext();
+
+// "금주 및 내주 예정사항"은 며칠씩 잘 안 바뀌는 내용이라, 버튼을 따로 안 눌러도
+// 페이지 열 때 전일 시트 내용으로 자동으로 채워두고 그 위에서 수정하게 한다.
+async function loadDefaultProgressPlan() {
+  const statusEl = document.getElementById("progressPlanStatus");
+  try {
+    const res = await fetch("/api/prev-day");
+    const data = await res.json();
+    if (data.ok) {
+      document.getElementById("progressPlan").value = data.progressPlan || "";
+      statusEl.textContent = `"${data.sheetName}" 시트 내용을 불러왔습니다. 필요하면 수정 후 제출하세요.`;
+    } else {
+      statusEl.textContent = "";
+    }
+  } catch (e) {
+    statusEl.textContent = "";
+  }
+}
+loadDefaultProgressPlan();
 
 // ---------- 사진 3장 붙여넣기 ----------
 const PHOTO_SLOT_COUNT = 3;
