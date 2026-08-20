@@ -203,15 +203,51 @@ function Set-CellValue($ws, [string]$addr, $value) {
     throw "셀 $addr 쓰기 실패 (4회 재시도 후): $($lastErr.Exception.Message)"
 }
 
+# 장비를 여러 대 적거나 조치사항 코멘트가 길면 기본 행 높이(30pt)로는 글이 잘려 보인다.
+# 그렇다고 셀을 병합해서 아래 행(예: 순회점검 행)까지 침범하면 다른 항목과 겹치게 되므로,
+# 실제 글자를 그 칸의 폰트/너비 기준으로 미리 측정해서 필요한 만큼만 행 높이를 늘린다.
+# (Range.EntireRow.AutoFit()은 병합된 셀에서는 병합 전 좁은 너비 기준으로 계산해버려서
+# 실제보다 훨씬 작은 값이 나오는 것을 확인했음 - 그래서 직접 측정하는 방식을 씀.)
+Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
+function Get-NeededTextHeight($ws, [string]$addr) {
+    $rng = $ws.Range($addr)
+    $text = [string]$rng.Text
+    if ([string]::IsNullOrEmpty($text)) { return 0 }
+    $widthPt = $rng.MergeArea.Width - 4
+    if ($widthPt -lt 10) { $widthPt = 10 }
+    $bmp = New-Object System.Drawing.Bitmap 1, 1
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    try {
+        $g.PageUnit = [System.Drawing.GraphicsUnit]::Point
+        $font = New-Object System.Drawing.Font ([string]$rng.Font.Name), ([single]$rng.Font.Size)
+        try {
+            $size = $g.MeasureString($text, $font, [int]$widthPt)
+            return [Math]::Ceiling($size.Height) + 6
+        } finally { $font.Dispose() }
+    } finally {
+        $g.Dispose(); $bmp.Dispose()
+    }
+}
+
+# B/I 두 칸 중 더 많은 줄이 필요한 쪽 기준으로 그 행 높이를 정한다 (최소 30, 최대 90).
+function Set-CheckRowHeight($ws, [int]$row, [string]$bAddr, [string]$iAddr) {
+    $needed = [Math]::Max((Get-NeededTextHeight $ws $bAddr), (Get-NeededTextHeight $ws $iAddr))
+    $height = [Math]::Max(30, $needed)
+    $height = [Math]::Min(90, $height)
+    $ws.Rows.Item($row).RowHeight = $height
+}
+
 # 일일 위험성평가의 단순 체크 항목(안전점검/위험물저장소/S-L/온열질환/순회점검) 공통 처리.
 # B열에는 "{라벨} 이상 무" / "{라벨} 이상 유"를 항상 명시적으로 적고, I열("위험성평가에
 # 관한 조치")에는 유(이상 있음)일 때만 사용자가 입력한 조치/코멘트를 적는다.
 function Write-CheckRow($ws, [string]$bAddr, [string]$iAddr, [string]$label, $chk) {
+    $row = $ws.Range($bAddr).Row
     # 사용자가 폼에서 이 항목을 삭제했으면 $chk가 null로 온다 - 그 날은 해당 없는
     # 항목이라는 뜻이므로 칸을 그냥 비워둔다.
     if ($null -eq $chk) {
         Set-CellValue $ws $bAddr $null
         Set-CellValue $ws $iAddr $null
+        $ws.Rows.Item($row).RowHeight = 30
         return
     }
     $suffix = if ($chk.ok) { "이상 무" } else { "이상 유" }
@@ -220,6 +256,7 @@ function Write-CheckRow($ws, [string]$bAddr, [string]$iAddr, [string]$label, $ch
     # ("'if' 용어가 cmdlet으로 인식되지 않습니다" 오류) - 변수에 먼저 대입해서 넘긴다.
     $comment = if ($chk.ok) { $null } else { [string]$chk.note }
     Set-CellValue $ws $iAddr $comment
+    Set-CheckRowHeight $ws $row $bAddr $iAddr
 }
 
 # 사진대지 3칸 위치/크기 (B32:G37, H32:L37, M32:R37 병합 셀의 실제 좌표, 단위: 포인트)
@@ -551,6 +588,9 @@ function Invoke-Submit($payload) {
     }
     Set-CellValue $ws "S21" $null
     Set-CellValue $ws "Z21" $null
+    # 장비를 여러 대 적으면 한 줄에 다 안 들어와서 잘려 보이므로, 아래 행(순회점검)을
+    # 침범하는 셀 병합 대신 이 행 자체의 높이를 필요한 만큼 늘린다.
+    Set-CheckRowHeight $ws 21 "B21" "I21"
 
     # 안전관계기록 - 공종별 안전지시사항은 엑셀 물리 슬롯이 6개(24~29행)뿐이라
     # 폼에서 온 개수만큼(최대 6개) 라벨(B열)과 내용(C열)을 함께 채우고, 남는 칸은 비운다.
