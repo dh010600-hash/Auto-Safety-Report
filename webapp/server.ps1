@@ -77,6 +77,22 @@ function Close-MasterForOp {
     $script:ExcelPid = $null
 }
 
+# 제출이 성공하면 결과를 바로 눈으로 확인할 수 있게 엑셀을 화면에 띄워준다.
+# (자동화용 숨김 인스턴스와는 별개의 새 엑셀 창이라, Open-MasterForOp/Close-MasterForOp의
+# "필요할 때만 열었다 닫는다" 원칙과 무관함 - 다만 이 창이 열려있는 동안은 사용자가 직접
+# 닫기 전까지 파일이 잠기므로, 다음 제출 전에 이 창을 닫아야 한다.)
+function Show-MasterFile([string]$sheetName) {
+    try {
+        $excel = New-Object -ComObject Excel.Application
+        $excel.Visible = $true
+        $wb = $excel.Workbooks.Open($masterPath)
+        try { $wb.Worksheets.Item($sheetName).Activate() } catch {}
+        $excel.Activate()
+    } catch {
+        # 실패해도 제출 자체는 이미 성공했으므로 무시하고 넘어간다.
+    }
+}
+
 # 시작할 때 한 번만 열어서 TEMPLATE 시트 존재 여부만 확인하고 바로 닫는다.
 Open-MasterForOp
 $hasTemplate = $false
@@ -333,6 +349,15 @@ function Set-SheetPhotos($ws, $photos) {
                 try {
                     $shape = $ws.Shapes.AddPicture($croppedTempFile, $false, $true, [single]$slot.Left, [single]$slot.Top, [single]$slot.Width, [single]$slot.Height)
                     $shape.Name = $shapeName
+                    # 기본값(xlMoveAndSize)은 사진 위치를 "셀 기준 상대 위치"로 저장해서, 위쪽에
+                    # 있는 다른 행의 높이가 나중에 바뀌면(예: 장비 칸이 길어져서 행이 커지면)
+                    # 사진 위치도 같이 밀려버리는 문제가 있었다 (실제로 확인함). 절대 위치로
+                    # 고정되는 xlFreeFloating으로 바꾸고 좌표를 다시 명시해서 이 문제를 없앤다.
+                    $shape.Placement = 3   # xlFreeFloating
+                    $shape.Left = [single]$slot.Left
+                    $shape.Top = [single]$slot.Top
+                    $shape.Width = [single]$slot.Width
+                    $shape.Height = [single]$slot.Height
                     $done = $true
                 } catch {
                     $lastErr = $_
@@ -719,9 +744,10 @@ try {
                     Open-MasterForOp
                     try {
                         $result = Invoke-Submit $payload
-                        Send-Json $response $result
                     }
                     finally { Close-MasterForOp }
+                    Show-MasterFile $result.sheetName
+                    Send-Json $response $result
                 } catch {
                     $detail = "$($_.Exception.Message) @ line $($_.InvocationInfo.ScriptLineNumber): $($_.InvocationInfo.Line.Trim())"
                     Send-Json $response ([PSCustomObject]@{ ok = $false; error = $detail }) 500

@@ -331,7 +331,7 @@
 </div>
 
 <script>
-const DEFAULT_TRADES = ["직  원 / 직  영", "전기/ESS", "기계설비/FCU", "수  장", "도  장", "토  목", "펜  스"];
+const DEFAULT_TRADES = ["직  원 / 직  영", "전기/ESS", "기계설비", "수  장", "도  장", "토  목", "펜  스"];
 const tradeRowsEl = document.getElementById("tradeRows");
 
 // 공종 행마다 고유 id를 붙여서, 이름이 바뀌어도(예: 공종명 수정) 안전관계기록 쪽에서
@@ -414,11 +414,12 @@ function getEquipEntries() {
 const TRADE_DEFS = [
   { key: "직원직영", label: "직  원 / 직  영", keywords: ["직원", "직영"] },
   { key: "전기ess", label: "전기/ESS",     keywords: ["전기", "ess"] },
-  { key: "기계설비", label: "기계설비/FCU", keywords: ["fcu", "기계", "설비", "공조", "덕트", "eng"] },
-  { key: "수장",    label: "수  장",       keywords: ["내장", "수장"] },
+  { key: "기계설비", label: "기계설비",     keywords: ["fcu", "기계", "설비", "공조", "덕트", "eng", "대한eng"] },
+  { key: "수장",    label: "수  장",       keywords: ["내장", "수장", "포비엠"] },
   { key: "도장",    label: "도  장",       keywords: ["도장"] },
   { key: "토목",    label: "토  목",       keywords: ["토목"] },
-  { key: "펜스",    label: "펜  스",       keywords: ["휀스", "펜스"] }
+  { key: "펜스",    label: "펜  스",       keywords: ["휀스", "펜스"] },
+  { key: "주방기구", label: "주방기구",     keywords: ["아이디스"] }
 ];
 
 function matchTradeByTitle(title) {
