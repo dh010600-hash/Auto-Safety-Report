@@ -664,17 +664,41 @@ function applyParsedTrades(parsed) {
   return filled;
 }
 
-document.getElementById("parseKakaoBtn").addEventListener("click", () => {
+// AI(Claude API)로 먼저 분석을 시도하고, 키가 없거나 호출이 실패하면 기존 로컬
+// 규칙(정해진 [이름][시간][제목] 형식 등) 기반 파서로 조용히 대체한다.
+async function parseKakaoWithAI(text) {
+  const res = await fetch("/api/parse-kakao", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text })
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "AI 분석 실패");
+  return data.trades || [];
+}
+
+document.getElementById("parseKakaoBtn").addEventListener("click", async () => {
   const text = document.getElementById("kakaoPaste").value;
   const statusEl = document.getElementById("kakaoParseStatus");
   if (!text.trim()) { statusEl.textContent = "붙여넣은 내용이 없습니다."; return; }
-  const parsed = parseKakaoText(text);
-  if (parsed.length === 0) {
+
+  statusEl.textContent = "분석 중...";
+  let parsed;
+  let usedAI = true;
+  try {
+    parsed = await parseKakaoWithAI(text);
+  } catch (e) {
+    usedAI = false;
+    parsed = parseKakaoText(text);
+  }
+
+  if (!parsed || parsed.length === 0) {
     statusEl.textContent = "인식된 공종이 없습니다. 형식을 확인해주세요 (직접 입력해도 됩니다).";
     return;
   }
   const filled = applyParsedTrades(parsed);
-  statusEl.textContent = `${filled}개 공종에 자동 반영했습니다: ${parsed.map(p => p.label.trim()).join(", ")}. 아래에서 내용을 확인 후 필요하면 수정해주세요.`;
+  const via = usedAI ? "AI 분석" : "로컬 규칙 (AI 사용 불가 - 키 미설정 또는 호출 실패)";
+  statusEl.textContent = `[${via}] ${filled}개 공종에 자동 반영했습니다: ${parsed.map(p => p.label.trim()).join(", ")}. 아래에서 내용을 확인 후 필요하면 수정해주세요.`;
 });
 
 // ---------- 작업내용 기반 안전지시사항 자동 제안 ----------
@@ -763,11 +787,11 @@ function buildSafetyMessage(workText, ruleKey, heatPhrase, heatApplicable) {
   return msgs.join(", ");
 }
 
-document.getElementById("suggestSafetyBtn").addEventListener("click", () => {
+// 기존 로컬 키워드 규칙 방식 (AI 키가 없거나 호출 실패 시 대체용)
+function applyLocalSafetySuggestions() {
   const weather = document.getElementById("weather").value || "";
   const heatPhrase = getHeatRestPhrase(weather);
 
-  syncEduRows();
   document.querySelectorAll("#eduRows .edu-slot").forEach(slot => {
     const name = slot.dataset.trade;
     const ruleKey = getRuleKeyForTradeName(name);
@@ -780,8 +804,52 @@ document.getElementById("suggestSafetyBtn").addEventListener("click", () => {
       ? "온열질환 예방(물·그늘·휴식 3대 기본수칙) 강조, 개인보호구 착용 및 휴식시간 준수 강조"
       : "개인보호구 착용 및 안전수칙 준수 강조";
   }
+}
 
-  document.getElementById("suggestSafetyStatus").textContent = "작업내용을 분석해 안전지시사항을 자동으로 채웠습니다. 현장 상황에 맞게 확인 후 필요하면 수정해주세요.";
+// AI(Claude API)로 공종별 작업내용을 분석해서 안전지시사항을 생성. 실패하면 예외를 던져서
+// 호출부가 기존 로컬 규칙 방식으로 대체하게 한다.
+async function applySafetySuggestionsWithAI() {
+  const weather = document.getElementById("weather").value || "";
+  const slots = Array.from(document.querySelectorAll("#eduRows .edu-slot"));
+  const trades = slots.map(slot => ({ trade: slot.dataset.trade, work: getTradeWork([slot.dataset.trade]) }));
+
+  const res = await fetch("/api/suggest-safety", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ weather, trades })
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "AI 제안 실패");
+
+  // AI가 공종명 중간의 이중 공백(예: "토  목")을 그대로 안 지키고 "토목"처럼
+  // 줄여서 돌려주는 경우가 있어, 공백을 무시하고 매칭한다.
+  const norm = s => (s || "").replace(/\s+/g, "");
+  const textByTrade = {};
+  (data.items || []).forEach(it => { textByTrade[norm(it.trade)] = it.text; });
+  slots.forEach(slot => {
+    const text = textByTrade[norm(slot.dataset.trade)];
+    if (text) slot.querySelector(".edu-text").value = text;
+  });
+  if (!document.getElementById("edu_daily").value.trim() && data.daily) {
+    document.getElementById("edu_daily").value = data.daily;
+  }
+}
+
+document.getElementById("suggestSafetyBtn").addEventListener("click", async () => {
+  const statusEl = document.getElementById("suggestSafetyStatus");
+  syncEduRows();
+  statusEl.textContent = "작업내용 분석 중...";
+
+  let usedAI = true;
+  try {
+    await applySafetySuggestionsWithAI();
+  } catch (e) {
+    usedAI = false;
+    applyLocalSafetySuggestions();
+  }
+
+  const via = usedAI ? "AI 분석" : "로컬 규칙 (AI 사용 불가 - 키 미설정 또는 호출 실패)";
+  statusEl.textContent = `[${via}] 작업내용을 분석해 안전지시사항을 자동으로 채웠습니다. 현장 상황에 맞게 확인 후 필요하면 수정해주세요.`;
 });
 
 // 일일 위험성평가 항목들의 유/무 상태 관리

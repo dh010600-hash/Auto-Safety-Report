@@ -6,6 +6,7 @@
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "Weather.ps1")
+. (Join-Path $PSScriptRoot "Claude.ps1")
 
 $root = Split-Path -Parent $PSScriptRoot
 $masterPath = Join-Path $root "안전일지(교도소 신축시설 현장) 남동현.xlsx"
@@ -87,6 +88,11 @@ if (-not $hasTemplate) {
     throw "마스터 워크북에 TEMPLATE 시트가 없습니다. 먼저 PrepareMasterTemplate.ps1 을 실행하세요."
 }
 Write-Host "마스터 파일 확인 완료: $masterPath (평소엔 닫아둠 - 필요할 때만 열었다 닫습니다)"
+if ($script:AnthropicApiKey) {
+    Write-Host "Anthropic API 키 확인됨 - 카톡 분석/안전지시사항 자동 제안에 AI를 사용합니다."
+} else {
+    Write-Host "Anthropic API 키 없음 (webapp/anthropic_api_key.txt) - 기존 로컬 규칙 방식으로 동작합니다."
+}
 
 # ---------- 유틸 ----------
 function Get-KoreanDateLabel([datetime]$d) {
@@ -685,6 +691,24 @@ try {
                     Open-MasterForOp
                     try { Send-Json $response (Get-PrevDayInfo) }
                     finally { Close-MasterForOp }
+                } catch {
+                    Send-Json $response ([PSCustomObject]@{ ok = $false; error = $_.Exception.Message })
+                }
+            }
+            elseif ($request.HttpMethod -eq "POST" -and $path -eq "/api/parse-kakao") {
+                try {
+                    $body = Read-JsonBody $request
+                    $result = Get-KakaoParseFromAI ([string]$body.text)
+                    Send-Json $response ([PSCustomObject]@{ ok = $true; trades = $result.trades })
+                } catch {
+                    Send-Json $response ([PSCustomObject]@{ ok = $false; error = $_.Exception.Message })
+                }
+            }
+            elseif ($request.HttpMethod -eq "POST" -and $path -eq "/api/suggest-safety") {
+                try {
+                    $body = Read-JsonBody $request
+                    $result = Get-SafetySuggestionsFromAI $body.trades ([string]$body.weather)
+                    Send-Json $response ([PSCustomObject]@{ ok = $true; daily = $result.daily; items = $result.items })
                 } catch {
                     Send-Json $response ([PSCustomObject]@{ ok = $false; error = $_.Exception.Message })
                 }

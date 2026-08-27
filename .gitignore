@@ -11,3 +11,6 @@ webapp/server_stderr.log
 
 # Claude Code 로컬 설정
 .claude/
+
+# Anthropic API 키 (비밀값 - 저장소에 올리지 않음)
+webapp/anthropic_api_key.txt
