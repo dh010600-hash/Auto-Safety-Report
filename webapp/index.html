@@ -893,6 +893,11 @@ YN_KEYS.forEach(key => {
   });
 });
 
+// 온열질환 자율 점검은 더 이상 매일 체크하지 않아도 되어서 기본적으로 빼둔다.
+// (필요한 날엔 위 "삭제된 항목" 목록의 복원 링크로 다시 켤 수 있음)
+document.querySelector('.check-item[data-key="heat"]').classList.add("removed");
+updateRemovedChecksHint();
+
 // 삭제되지 않은 항목만 payload에 포함시킨다 (삭제된 항목은 null -> 서버에서 해당 셀을 비워둠)
 function getCheckPayload(key, extra) {
   const item = document.querySelector(`.check-item[data-key="${key}"]`);
