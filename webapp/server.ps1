@@ -253,6 +253,14 @@ function Get-NeededTextHeight($ws, [string]$addr) {
 
 # B/I 두 칸 중 더 많은 줄이 필요한 쪽 기준으로 그 행 높이를 정한다 (최소 30, 최대 90).
 function Set-CheckRowHeight($ws, [int]$row, [string]$bAddr, [string]$iAddr) {
+    $bText = [string]$ws.Range($bAddr).Text
+    $iText = [string]$ws.Range($iAddr).Text
+    if ([string]::IsNullOrEmpty($bText) -and [string]::IsNullOrEmpty($iText)) {
+        # 그 날 해당 없는(삭제되었거나 장비 0개인) 항목은 행을 아주 얇게 접어서
+        # 빈 줄이 중간에 구멍처럼 보이지 않게 한다 (내용은 그대로 없는 채로 유지).
+        $ws.Rows.Item($row).RowHeight = 4
+        return
+    }
     $needed = [Math]::Max((Get-NeededTextHeight $ws $bAddr), (Get-NeededTextHeight $ws $iAddr))
     $height = [Math]::Max(30, $needed)
     $height = [Math]::Min(90, $height)
@@ -269,7 +277,7 @@ function Write-CheckRow($ws, [string]$bAddr, [string]$iAddr, [string]$label, $ch
     if ($null -eq $chk) {
         Set-CellValue $ws $bAddr $null
         Set-CellValue $ws $iAddr $null
-        $ws.Rows.Item($row).RowHeight = 30
+        Set-CheckRowHeight $ws $row $bAddr $iAddr
         return
     }
     $suffix = if ($chk.ok) { "이상 무" } else { "이상 유" }

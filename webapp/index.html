@@ -360,6 +360,8 @@ function addTradeRow(name, count, work) {
 }
 
 const MAX_TRADE_ROWS = 8;
+// 장비 집계에서 제외할 항목 (T/L, 렌탈/렌탈장비 등 - 이름이 정확히 이거랑 같을 때만 제외)
+const EXCLUDED_EQUIP_RE = /^(t\s*\/?\s*l|렌탈\s*장?비?)$/i;
 const STAFF_FIXED_COUNT = 13; // 직원 고정 인원 (직영 인원에 항상 더해서 넣음)
 const DEFAULT_TRADE_COUNTS = { "직  원 / 직  영": STAFF_FIXED_COUNT }; // 직원+직영 합산 기본 인원 (필요시 직접 수정)
 DEFAULT_TRADES.forEach(t => addTradeRow(t, DEFAULT_TRADE_COUNTS[t] || 0, ""));
@@ -541,8 +543,8 @@ function parseKakaoText(text) {
     const m = v.match(/^(.+?)[\s:\-]*?(\d+)\s*대/);
     if (m) {
       const name = m[1].replace(/[:\-]\s*$/, "").trim();
-      // T/L 장비는 집계에서 제외
-      if (name && !/^t\s*\/?\s*l$/i.test(name)) current.equipMentions.push({ name: name, qty: parseInt(m[2], 10) || 1 });
+      // T/L, 렌탈 장비는 집계에서 제외
+      if (name && !EXCLUDED_EQUIP_RE.test(name)) current.equipMentions.push({ name: name, qty: parseInt(m[2], 10) || 1 });
     }
   }
 
@@ -677,11 +679,11 @@ async function parseKakaoWithAI(text) {
   const data = await res.json();
   if (!data.ok) throw new Error(data.error || "AI 분석 실패");
   // AI가 프롬프트 지시를 놓치는 경우에 대비한 안전장치: "없음"을 장비명으로 착각해서
-  // 넣었거나 T/L 장비가 섞여 있으면 여기서도 한 번 더 걸러낸다.
+  // 넣었거나 T/L·렌탈 장비가 섞여 있으면 여기서도 한 번 더 걸러낸다.
   const trades = data.trades || [];
   trades.forEach(t => {
     if (Array.isArray(t.equipMentions)) {
-      t.equipMentions = t.equipMentions.filter(e => e && e.name && !/^없\s*음\.?$/.test(e.name) && !/^t\s*\/?\s*l$/i.test(e.name));
+      t.equipMentions = t.equipMentions.filter(e => e && e.name && !/^없\s*음\.?$/.test(e.name) && !EXCLUDED_EQUIP_RE.test(e.name));
     }
   });
   return trades;
