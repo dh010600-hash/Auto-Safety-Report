@@ -89,6 +89,8 @@ function Get-KakaoParseFromAI([string]$text) {
 - "직원"과 "직영" 메시지는 둘 다 "직  원 / 직  영" 하나로 합쳐서 인원을 더해라.
 - "총인원"/"총 인원" 같은 합계 줄은 다른 항목과 중복되므로 인원 집계에 포함하지 마라.
 - 장비는 "OO 1대" 형태로 언급된 것만 equipMentions에 넣어라 (숫자 없이 장비명만 언급된 경우 1대로 간주).
+- 장비 항목이 "없음"이면(장비명이 아니라 "장비 없다"는 뜻) equipMentions에 아무것도 넣지 마라. "없음"을 장비명으로 착각해서 1대로 넣지 마라.
+- "T/L"이라는 장비는 equipMentions에서 제외해라 (언급되어도 넣지 않는다).
 - work가 "없음"/"작업없음"이면 빈 문자열로 둬라.
 "@
     $raw = Invoke-ClaudeMessages $systemPrompt $text 1500

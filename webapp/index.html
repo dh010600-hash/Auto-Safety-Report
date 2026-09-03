@@ -537,11 +537,12 @@ function parseKakaoText(text) {
   function addEquipFromText(str) {
     if (!current) return;
     const v = stripPrefix(str);
-    if (!v || v === "없음") return;
+    if (!v || /^없\s*음\.?$/.test(v)) return;
     const m = v.match(/^(.+?)[\s:\-]*?(\d+)\s*대/);
     if (m) {
       const name = m[1].replace(/[:\-]\s*$/, "").trim();
-      if (name) current.equipMentions.push({ name: name, qty: parseInt(m[2], 10) || 1 });
+      // T/L 장비는 집계에서 제외
+      if (name && !/^t\s*\/?\s*l$/i.test(name)) current.equipMentions.push({ name: name, qty: parseInt(m[2], 10) || 1 });
     }
   }
 
@@ -675,7 +676,15 @@ async function parseKakaoWithAI(text) {
   });
   const data = await res.json();
   if (!data.ok) throw new Error(data.error || "AI 분석 실패");
-  return data.trades || [];
+  // AI가 프롬프트 지시를 놓치는 경우에 대비한 안전장치: "없음"을 장비명으로 착각해서
+  // 넣었거나 T/L 장비가 섞여 있으면 여기서도 한 번 더 걸러낸다.
+  const trades = data.trades || [];
+  trades.forEach(t => {
+    if (Array.isArray(t.equipMentions)) {
+      t.equipMentions = t.equipMentions.filter(e => e && e.name && !/^없\s*음\.?$/.test(e.name) && !/^t\s*\/?\s*l$/i.test(e.name));
+    }
+  });
+  return trades;
 }
 
 document.getElementById("parseKakaoBtn").addEventListener("click", async () => {
